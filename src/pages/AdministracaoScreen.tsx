@@ -4,6 +4,7 @@ import {
   Database,
   UploadCloud,
   Mail,
+  MailCheck,
   ShieldAlert,
   Plus,
   Pencil,
@@ -13,6 +14,7 @@ import {
   Search,
   RotateCcw,
 } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { adminService, auxiliaresService } from '@/services/apiService'
 import { ImportWizard } from '@/components/admin/ImportWizard'
@@ -31,11 +33,48 @@ import type {
 
 export const AdministracaoScreen: React.FC = () => {
   const { user, isAdmin } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  // Abas: 'usuarios' | 'auxiliares' | 'importacao' | 'email' | 'auditoria'
+  const initialTab = (() => {
+    const tabParam = searchParams.get('tab')
+    if (
+      tabParam === 'usuarios' ||
+      tabParam === 'remetentes' ||
+      tabParam === 'auxiliares' ||
+      tabParam === 'importacao' ||
+      tabParam === 'email' ||
+      tabParam === 'auditoria'
+    ) {
+      return tabParam
+    }
+    return 'usuarios'
+  })()
+
+  // Abas: 'usuarios' | 'remetentes' | 'auxiliares' | 'importacao' | 'email' | 'auditoria'
   const [activeTab, setActiveTab] = useState<
-    'usuarios' | 'auxiliares' | 'importacao' | 'email' | 'auditoria'
-  >('usuarios')
+    'usuarios' | 'remetentes' | 'auxiliares' | 'importacao' | 'email' | 'auditoria'
+  >(initialTab)
+
+  // Sincronizar tab com query param
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (
+      tabParam &&
+      tabParam !== activeTab &&
+      ['usuarios', 'remetentes', 'auxiliares', 'importacao', 'email', 'auditoria'].includes(
+        tabParam,
+      )
+    ) {
+      setActiveTab(tabParam as any)
+    }
+  }, [searchParams])
+
+  const handleSelectTab = (
+    tab: 'usuarios' | 'remetentes' | 'auxiliares' | 'importacao' | 'email' | 'auditoria',
+  ) => {
+    setActiveTab(tab)
+    setSearchParams({ tab })
+  }
 
   // ABA 1: USUÁRIOS
   const [usersList, setUsersList] = useState<User[]>([])
@@ -96,6 +135,8 @@ export const AdministracaoScreen: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'usuarios') {
       loadUsers()
+    } else if (activeTab === 'remetentes') {
+      loadRemetentes()
     } else if (activeTab === 'auxiliares') {
       loadAuxItems()
     } else if (activeTab === 'email') {
@@ -259,45 +300,92 @@ export const AdministracaoScreen: React.FC = () => {
     setRemetenteModalOpen(true)
   }
 
+  const isValidEmail = (emailStr: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailStr.trim())
+  }
+
   const handleSaveRemetenteModal = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!remetenteFormData.nome.trim() || !remetenteFormData.email.trim()) return
+    const nomeLimpo = remetenteFormData.nome.trim()
+    const emailLimpo = remetenteFormData.email.trim().toLowerCase()
+
+    if (!nomeLimpo || !emailLimpo) {
+      alert('Preencha o nome e o e-mail do remetente.')
+      return
+    }
+
+    if (!isValidEmail(emailLimpo)) {
+      alert('Por favor, informe um endereço de e-mail válido (exemplo: usuario@rolanddg.com.br).')
+      return
+    }
+
+    // Validação de duplicidade no frontend
+    const duplicado = remetentes.some(
+      (r) => r.email.toLowerCase() === emailLimpo && r.id !== editingRemetente?.id,
+    )
+    if (duplicado) {
+      alert(`O e-mail "${emailLimpo}" já está cadastrado como remetente permitido.`)
+      return
+    }
 
     try {
       if (editingRemetente) {
         await auxiliaresService.updateRemetente(editingRemetente.id, {
-          nome: remetenteFormData.nome.trim(),
-          email: remetenteFormData.email.trim(),
+          nome: nomeLimpo,
+          email: emailLimpo,
         })
       } else {
         await auxiliaresService.createRemetente({
-          nome: remetenteFormData.nome.trim(),
-          email: remetenteFormData.email.trim(),
+          nome: nomeLimpo,
+          email: emailLimpo,
         })
       }
       setRemetenteModalOpen(false)
       await loadRemetentes()
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      alert('Erro ao salvar remetente.')
+      const msg =
+        err?.data?.data?.email?.message ||
+        'Erro ao salvar remetente. Verifique os dados informados.'
+      alert(msg)
     }
   }
 
   const handleCreateRemetente = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newRemetenteEmail.trim() || !newRemetenteNome.trim()) return
+    const nomeLimpo = newRemetenteNome.trim()
+    const emailLimpo = newRemetenteEmail.trim().toLowerCase()
+
+    if (!nomeLimpo || !emailLimpo) {
+      alert('Preencha o nome e o e-mail do remetente.')
+      return
+    }
+
+    if (!isValidEmail(emailLimpo)) {
+      alert('Por favor, informe um endereço de e-mail válido (exemplo: usuario@rolanddg.com.br).')
+      return
+    }
+
+    const duplicado = remetentes.some((r) => r.email.toLowerCase() === emailLimpo)
+    if (duplicado) {
+      alert(`O e-mail "${emailLimpo}" já está cadastrado como remetente permitido.`)
+      return
+    }
 
     try {
       await auxiliaresService.createRemetente({
-        nome: newRemetenteNome.trim(),
-        email: newRemetenteEmail.trim(),
+        nome: nomeLimpo,
+        email: emailLimpo,
       })
       setNewRemetenteNome('')
       setNewRemetenteEmail('')
       await loadRemetentes()
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      alert('Erro ao cadastrar remetente. Verifique se o e-mail é válido.')
+      const msg =
+        err?.data?.data?.email?.message ||
+        'Erro ao cadastrar remetente. Verifique se o e-mail é válido e único.'
+      alert(msg)
     }
   }
 
@@ -352,6 +440,7 @@ export const AdministracaoScreen: React.FC = () => {
         <div className="flex items-center gap-2 mt-5 border-b border-slate-200 overflow-x-auto">
           {[
             { key: 'usuarios', label: 'Usuários do Sistema', icon: Users },
+            { key: 'remetentes', label: 'Remetentes Permitidos', icon: MailCheck },
             { key: 'auxiliares', label: 'Tabelas Auxiliares', icon: Database },
             { key: 'importacao', label: 'Importação XLSX', icon: UploadCloud },
             { key: 'email', label: 'Configurações de E-mail', icon: Mail },
@@ -362,7 +451,7 @@ export const AdministracaoScreen: React.FC = () => {
             return (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key as any)}
+                onClick={() => handleSelectTab(tab.key as any)}
                 className={`flex items-center gap-2 py-3 px-4 text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
                   isActive
                     ? 'border-blue-600 text-blue-600'
@@ -600,10 +689,158 @@ export const AdministracaoScreen: React.FC = () => {
         </div>
       )}
 
-      {/* ==================== ABA 3: WIZARD DE IMPORTAÇÃO ==================== */}
+      {/* ==================== ABA 2: REMETENTES PERMITIDOS ==================== */}
+      {activeTab === 'remetentes' && (
+        <div className="space-y-6 animate-in fade-in">
+          {/* Card Informativo com Contexto do Fluxo de Envio */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-blue-600 text-white rounded-lg">
+                  <MailCheck className="h-4 w-4" />
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Remetentes Permitidos para Disparos
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
+                  {remetentes.length} cadastrado(s)
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
+                Apenas os endereços listados abaixo são autorizados a figurar no cabeçalho{' '}
+                <strong>"De" (Sender)</strong> das campanhas de comunicação por e-mail enviadas às
+                revendas e contatos. O endereço padrão do fluxo de envio é{' '}
+                <strong className="font-mono text-blue-700">nao-responda@rolanddg.com.br</strong>.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleOpenRemetenteModal()}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-sm whitespace-nowrap self-start md:self-center"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Novo Remetente</span>
+            </button>
+          </div>
+
+          {/* Gerenciamento de Remetentes Permitidos (CRUD Completo) */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+            <div className="flex items-center justify-between border-b pb-4">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Cadastro Rápido de Remetente</h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Informe o nome legível e o e-mail corporativo autorizado.
+                </p>
+              </div>
+            </div>
+
+            <form
+              onSubmit={handleCreateRemetente}
+              className="flex flex-wrap items-center gap-3 p-4 bg-slate-50 border rounded-xl text-xs"
+            >
+              <input
+                type="text"
+                required
+                placeholder="Nome de Exibição (ex: Roland DG Brasil)"
+                value={newRemetenteNome}
+                onChange={(e) => setNewRemetenteNome(e.target.value)}
+                className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px]"
+              />
+              <input
+                type="email"
+                required
+                placeholder="E-mail (ex: comunicados@rolanddg.com.br)"
+                value={newRemetenteEmail}
+                onChange={(e) => setNewRemetenteEmail(e.target.value)}
+                className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px] font-mono"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-sm"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Adicionar Remetente</span>
+              </button>
+            </form>
+
+            <div className="border rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b">
+                  <tr>
+                    <th className="py-3 px-4">Nome de Exibição</th>
+                    <th className="py-3 px-4">E-mail Autorizado</th>
+                    <th className="py-3 px-4 text-center">Padrão do Sistema</th>
+                    <th className="py-3 px-4 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y text-slate-700">
+                  {isEmailLoading ? (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-slate-400">
+                        <Loader2 className="h-5 w-5 animate-spin mx-auto text-blue-600" />
+                      </td>
+                    </tr>
+                  ) : remetentes.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-slate-400">
+                        Nenhum remetente cadastrado. Adicione um para permitir disparos de
+                        comunicados.
+                      </td>
+                    </tr>
+                  ) : (
+                    remetentes.map((r) => {
+                      const isDefault = r.email.toLowerCase() === 'nao-responda@rolanddg.com.br'
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50">
+                          <td className="py-3 px-4 font-semibold text-slate-900 flex items-center gap-2">
+                            <span>{r.nome}</span>
+                          </td>
+                          <td className="py-3 px-4 font-mono text-blue-700">{r.email}</td>
+                          <td className="py-3 px-4 text-center">
+                            {isDefault ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-blue-50 text-blue-700 border border-blue-200">
+                                Padrão de Envio
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleOpenRemetenteModal(r)}
+                                title="Editar remetente"
+                                className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteRemetente(r.id, r.email)}
+                                title="Excluir remetente"
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== ABA 3: TABELAS AUXILIARES ==================== */}
+      {/* (aba 'auxiliares' mantida abaixo) */}
+
+      {/* ==================== ABA 4: WIZARD DE IMPORTAÇÃO ==================== */}
       {activeTab === 'importacao' && <ImportWizard />}
 
-      {/* ==================== ABA 4: CONFIGURAÇÕES DE E-MAIL ==================== */}
+      {/* ==================== ABA 5: CONFIGURAÇÕES DE E-MAIL ==================== */}
       {activeTab === 'email' && (
         <div className="space-y-6 animate-in fade-in">
           {/* Card de Diagnóstico do Provedor de Envio */}
@@ -676,19 +913,33 @@ export const AdministracaoScreen: React.FC = () => {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Remetentes Permitidos</h3>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <span>Remetentes Permitidos</span>
+                  <span className="text-[11px] font-normal text-slate-400">
+                    (disponível também na aba principal "Remetentes Permitidos")
+                  </span>
+                </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Endereços autorizados a figurar no campo "De" nos disparos de comunicados.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => handleOpenRemetenteModal()}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Novo Remetente</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSelectTab('remetentes')}
+                  className="px-3 py-2 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
+                >
+                  Abrir Seção Dedicada →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenRemetenteModal()}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Novo Remetente</span>
+                </button>
+              </div>
             </div>
 
             <form
@@ -698,7 +949,7 @@ export const AdministracaoScreen: React.FC = () => {
               <input
                 type="text"
                 required
-                placeholder="Nome de Exibição (ex: Roland DG Comunicações)"
+                placeholder="Nome de Exibição (ex: Roland DG Brasil)"
                 value={newRemetenteNome}
                 onChange={(e) => setNewRemetenteNome(e.target.value)}
                 className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px]"
@@ -709,11 +960,11 @@ export const AdministracaoScreen: React.FC = () => {
                 placeholder="E-mail (ex: comunicados@rolanddg.com.br)"
                 value={newRemetenteEmail}
                 onChange={(e) => setNewRemetenteEmail(e.target.value)}
-                className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px]"
+                className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px] font-mono"
               />
               <button
                 type="submit"
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-sm"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-sm"
               >
                 <Plus className="h-4 w-4" />
                 <span>Adicionar Rápido</span>
@@ -726,47 +977,60 @@ export const AdministracaoScreen: React.FC = () => {
                   <tr>
                     <th className="py-3 px-4">Nome de Exibição</th>
                     <th className="py-3 px-4">E-mail Autorizado</th>
+                    <th className="py-3 px-4 text-center">Status</th>
                     <th className="py-3 px-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y text-slate-700">
                   {isEmailLoading ? (
                     <tr>
-                      <td colSpan={3} className="py-6 text-center text-slate-400">
+                      <td colSpan={4} className="py-6 text-center text-slate-400">
                         <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600" />
                       </td>
                     </tr>
                   ) : remetentes.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="py-6 text-center text-slate-400">
+                      <td colSpan={4} className="py-6 text-center text-slate-400">
                         Nenhum remetente cadastrado. Adicione um para poder disparar comunicados.
                       </td>
                     </tr>
                   ) : (
-                    remetentes.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50">
-                        <td className="py-3 px-4 font-semibold text-slate-900">{r.nome}</td>
-                        <td className="py-3 px-4 font-mono text-blue-700">{r.email}</td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => handleOpenRemetenteModal(r)}
-                              title="Editar remetente"
-                              className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRemetente(r.id, r.email)}
-                              title="Excluir remetente"
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                    remetentes.map((r) => {
+                      const isDefault = r.email.toLowerCase() === 'nao-responda@rolanddg.com.br'
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50">
+                          <td className="py-3 px-4 font-semibold text-slate-900">{r.nome}</td>
+                          <td className="py-3 px-4 font-mono text-blue-700">{r.email}</td>
+                          <td className="py-3 px-4 text-center">
+                            {isDefault ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-blue-50 text-blue-700 border border-blue-200">
+                                Padrão do Sistema
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleOpenRemetenteModal(r)}
+                                title="Editar remetente"
+                                className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteRemetente(r.id, r.email)}
+                                title="Excluir remetente"
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
