@@ -57,6 +57,23 @@ export const auxiliaresService = {
     return pb.collection('email_templates').getFullList<EmailTemplate>({ sort: 'nome' })
   },
 
+  // Métodos auxiliares específicos usados em criação inline
+  async createCargo(data: Partial<Cargo>): Promise<Cargo> {
+    return pb.collection('cargos').create<Cargo>(data)
+  },
+  async createSegmento(data: Partial<Segmento>): Promise<Segmento> {
+    return pb.collection('segmentos').create<Segmento>(data)
+  },
+  async createInsideSales(data: Partial<InsideSales>): Promise<InsideSales> {
+    return pb.collection('inside_sales').create<InsideSales>(data)
+  },
+  async createResponsavel(data: Partial<Responsavel>): Promise<Responsavel> {
+    return pb.collection('responsaveis').create<Responsavel>(data)
+  },
+  async createCanalFaturamento(data: Partial<CanalFaturamento>): Promise<CanalFaturamento> {
+    return pb.collection('canais_faturamento').create<CanalFaturamento>(data)
+  },
+
   // CRUD genérico para auxiliares
   async createItem(collection: string, data: Record<string, unknown>) {
     return pb.collection(collection).create(data)

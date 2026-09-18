@@ -23,6 +23,7 @@ import {
   revendasService,
   auxiliaresService,
   comunicacoesService,
+  adminService,
 } from '@/services/apiService'
 import type {
   Contato,

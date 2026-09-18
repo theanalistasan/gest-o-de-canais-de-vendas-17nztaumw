@@ -283,11 +283,11 @@ export const RevendasScreen: React.FC = () => {
         setSegmentos((prev) => [...prev, created])
         setFormData((prev) => ({ ...prev, segmento: created.id }))
       } else if (type === 'inside_sales') {
-        const created = await auxiliaresService.createInsideSales({ nome: val, ativo: true })
+        const created = await auxiliaresService.createInsideSales({ nome: val })
         setInsideSales((prev) => [...prev, created])
         setFormData((prev) => ({ ...prev, inside_sales: created.id }))
       } else if (type === 'responsavel') {
-        const created = await auxiliaresService.createResponsavel({ nome: val, ativo: true })
+        const created = await auxiliaresService.createResponsavel({ nome: val })
         setResponsaveis((prev) => [...prev, created])
         setFormData((prev) => ({ ...prev, responsavel: created.id }))
       } else if (type === 'canal_faturamento') {

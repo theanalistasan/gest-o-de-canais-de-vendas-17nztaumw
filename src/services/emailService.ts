@@ -59,7 +59,7 @@ class SimulatedEmailService implements IEmailService {
           data_envio: new Date().toISOString(),
           sucesso: true,
           erro: false,
-          mensagem_erro: '',
+          mensagem_erro: 'Simulado — nenhum e-mail enviado de fato',
         })
       }
 

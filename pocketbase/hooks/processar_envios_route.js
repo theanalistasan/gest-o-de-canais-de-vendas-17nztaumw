@@ -40,7 +40,7 @@ routerAdd(
 
       const campAssunto = camp.getString('assunto') || 'Comunicado'
       const campCorpo = camp.getString('corpo') || ''
-      const campRemetente = camp.getString('remetente') || 'comunicados@rolanddg.com.br'
+      const campRemetente = camp.getString('remetente') || 'nao-responda@rolanddg.com.br'
 
       for (let i = 0; i < enviosPendentes.length; i++) {
         const envio = enviosPendentes[i]
@@ -140,11 +140,14 @@ routerAdd(
         }
       }
 
-      const restantesApos = $app.countRecords(
+      const restantesApos = $app.findRecordsByFilter(
         'envios',
         "campanha = '" + camp.id + "' && status = 'Pendente'",
+        'created',
+        1,
+        0,
       )
-      if (restantesApos === 0) {
+      if (restantesApos.length === 0) {
         camp.set('status', 'Concluida')
         $app.save(camp)
       }
