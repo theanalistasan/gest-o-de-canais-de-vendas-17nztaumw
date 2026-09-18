@@ -68,6 +68,19 @@ export const AdministracaoScreen: React.FC = () => {
 
   // ABA 4: CONFIGURAÇÕES DE E-MAIL
   const [remetentes, setRemetentes] = useState<Remetente[]>([])
+  const [editingRemetente, setEditingRemetente] = useState<Remetente | null>(null)
+  const [remetenteModalOpen, setRemetenteModalOpen] = useState(false)
+  const [remetenteFormData, setRemetenteFormData] = useState({ nome: '', email: '' })
+  const [emailConfig, setEmailConfig] = useState<{
+    mode: 'real' | 'simulado'
+    configured: boolean
+    host: string
+    port: string
+    user: string
+    defaultSender: string
+    hasPassword: boolean
+    message: string
+  } | null>(null)
   const [isEmailLoading, setIsEmailLoading] = useState(false)
   const [newRemetenteNome, setNewRemetenteNome] = useState('')
   const [newRemetenteEmail, setNewRemetenteEmail] = useState('')
@@ -86,6 +99,7 @@ export const AdministracaoScreen: React.FC = () => {
       loadAuxItems()
     } else if (activeTab === 'email') {
       loadRemetentes()
+      loadEmailConfig()
     } else if (activeTab === 'auditoria') {
       loadAuditorias()
     }
@@ -212,6 +226,15 @@ export const AdministracaoScreen: React.FC = () => {
   }
 
   // ---------- CONFIGURAÇÕES DE E-MAIL ----------
+  const loadEmailConfig = async () => {
+    try {
+      const cfg = await adminService.getEmailConfig()
+      setEmailConfig(cfg)
+    } catch (err) {
+      console.error('Erro ao consultar config de email:', err)
+    }
+  }
+
   const loadRemetentes = async () => {
     setIsEmailLoading(true)
     try {
@@ -224,12 +247,47 @@ export const AdministracaoScreen: React.FC = () => {
     }
   }
 
+  const handleOpenRemetenteModal = (rem?: Remetente) => {
+    if (rem) {
+      setEditingRemetente(rem)
+      setRemetenteFormData({ nome: rem.nome, email: rem.email })
+    } else {
+      setEditingRemetente(null)
+      setRemetenteFormData({ nome: '', email: '' })
+    }
+    setRemetenteModalOpen(true)
+  }
+
+  const handleSaveRemetenteModal = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!remetenteFormData.nome.trim() || !remetenteFormData.email.trim()) return
+
+    try {
+      if (editingRemetente) {
+        await auxiliaresService.updateRemetente(editingRemetente.id, {
+          nome: remetenteFormData.nome.trim(),
+          email: remetenteFormData.email.trim(),
+        })
+      } else {
+        await auxiliaresService.createRemetente({
+          nome: remetenteFormData.nome.trim(),
+          email: remetenteFormData.email.trim(),
+        })
+      }
+      setRemetenteModalOpen(false)
+      await loadRemetentes()
+    } catch (err) {
+      console.error(err)
+      alert('Erro ao salvar remetente.')
+    }
+  }
+
   const handleCreateRemetente = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newRemetenteEmail.trim() || !newRemetenteNome.trim()) return
 
     try {
-      await auxiliaresService.createItem('remetentes', {
+      await auxiliaresService.createRemetente({
         nome: newRemetenteNome.trim(),
         email: newRemetenteEmail.trim(),
       })
@@ -242,13 +300,14 @@ export const AdministracaoScreen: React.FC = () => {
     }
   }
 
-  const handleDeleteRemetente = async (id: string) => {
-    if (!confirm('Deseja excluir este remetente autorizado?')) return
+  const handleDeleteRemetente = async (id: string, email: string) => {
+    if (!confirm(`Deseja realmente remover o remetente "${email}"?`)) return
     try {
-      await auxiliaresService.deleteItem('remetentes', id)
+      await auxiliaresService.deleteRemetente(id)
       await loadRemetentes()
     } catch (err) {
       console.error(err)
+      alert('Erro ao excluir remetente.')
     }
   }
 
@@ -545,83 +604,241 @@ export const AdministracaoScreen: React.FC = () => {
 
       {/* ==================== ABA 4: CONFIGURAÇÕES DE E-MAIL ==================== */}
       {activeTab === 'email' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6 animate-in fade-in">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Remetentes Permitidos</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Defina os endereços autorizados a figurar no campo "De" nos disparos de comunicados.
-            </p>
+        <div className="space-y-6 animate-in fade-in">
+          {/* Card de Diagnóstico do Provedor de Envio */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <span>Diagnóstico do Provedor de Envio</span>
+                  {emailConfig?.configured ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      SMTP Corporativo Ativo
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                      Modo Simulado Ativo
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Verifique o status da entrega real de mensagens para as caixas de entrada dos
+                  destinatários.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadEmailConfig}
+                className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Atualizar Diagnóstico</span>
+              </button>
+            </div>
+
+            <div
+              className={`p-4 rounded-xl border text-xs leading-relaxed ${
+                emailConfig?.configured
+                  ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900'
+                  : 'bg-amber-50/60 border-amber-200 text-amber-900'
+              }`}
+            >
+              <div className="font-semibold mb-1">
+                {emailConfig?.configured
+                  ? '✓ Servidor SMTP Conectado'
+                  : 'ℹ️ Atenção: Os disparos atuais são SIMULADOS'}
+              </div>
+              <div>{emailConfig?.message || 'Carregando diagnóstico do servidor de e-mail...'}</div>
+              {!emailConfig?.configured && (
+                <div className="mt-2.5 pt-2 border-t border-amber-200 text-[11px] text-amber-800 space-y-1">
+                  <p className="font-semibold">Como ativar o envio real de e-mails:</p>
+                  <p>
+                    Configure as variáveis de ambiente SMTP nas configurações do projeto (Cloud):
+                  </p>
+                  <code className="block bg-amber-100/70 p-2 rounded text-[11px] font-mono mt-1 text-slate-800">
+                    SMTP_HOST=smtp.exemplo.com.br
+                    <br />
+                    SMTP_PORT=587
+                    <br />
+                    SMTP_USER=usuario@exemplo.com.br
+                    <br />
+                    SMTP_PASS=senha_de_aplicativo
+                    <br />
+                    SMTP_FROM=comunicados@rolanddg.com.br
+                  </code>
+                </div>
+              )}
+            </div>
           </div>
 
-          <form
-            onSubmit={handleCreateRemetente}
-            className="flex flex-wrap items-center gap-3 p-4 bg-slate-50 border rounded-xl text-xs"
-          >
-            <input
-              type="text"
-              required
-              placeholder="Nome de Exibição (ex: Roland DG Comunicações)"
-              value={newRemetenteNome}
-              onChange={(e) => setNewRemetenteNome(e.target.value)}
-              className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px]"
-            />
-            <input
-              type="email"
-              required
-              placeholder="E-mail (ex: comunicados@rolanddg.com.br)"
-              value={newRemetenteEmail}
-              onChange={(e) => setNewRemetenteEmail(e.target.value)}
-              className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px]"
-            />
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-sm"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Cadastrar Remetente</span>
-            </button>
-          </form>
+          {/* Gerenciamento de Remetentes Permitidos (CRUD Completo) */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Remetentes Permitidos</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Endereços autorizados a figurar no campo "De" nos disparos de comunicados.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleOpenRemetenteModal()}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Novo Remetente</span>
+              </button>
+            </div>
 
-          <div className="border rounded-xl overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b">
-                <tr>
-                  <th className="py-3 px-4">Nome</th>
-                  <th className="py-3 px-4">E-mail</th>
-                  <th className="py-3 px-4 text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y text-slate-700">
-                {isEmailLoading ? (
+            <form
+              onSubmit={handleCreateRemetente}
+              className="flex flex-wrap items-center gap-3 p-4 bg-slate-50 border rounded-xl text-xs"
+            >
+              <input
+                type="text"
+                required
+                placeholder="Nome de Exibição (ex: Roland DG Comunicações)"
+                value={newRemetenteNome}
+                onChange={(e) => setNewRemetenteNome(e.target.value)}
+                className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px]"
+              />
+              <input
+                type="email"
+                required
+                placeholder="E-mail (ex: comunicados@rolanddg.com.br)"
+                value={newRemetenteEmail}
+                onChange={(e) => setNewRemetenteEmail(e.target.value)}
+                className="px-3 py-2 border rounded-lg bg-white flex-1 min-w-[200px]"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-sm"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Adicionar Rápido</span>
+              </button>
+            </form>
+
+            <div className="border rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b">
                   <tr>
-                    <td colSpan={3} className="py-6 text-center text-slate-400">
-                      <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600" />
-                    </td>
+                    <th className="py-3 px-4">Nome de Exibição</th>
+                    <th className="py-3 px-4">E-mail Autorizado</th>
+                    <th className="py-3 px-4 text-right">Ações</th>
                   </tr>
-                ) : remetentes.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="py-6 text-center text-slate-400">
-                      Nenhum remetente customizado cadastrado.
-                    </td>
-                  </tr>
-                ) : (
-                  remetentes.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50">
-                      <td className="py-3 px-4 font-semibold text-slate-900">{r.nome}</td>
-                      <td className="py-3 px-4 font-mono text-blue-700">{r.email}</td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => handleDeleteRemetente(r.id)}
-                          className="p-1 text-slate-400 hover:text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4 inline" />
-                        </button>
+                </thead>
+                <tbody className="divide-y text-slate-700">
+                  {isEmailLoading ? (
+                    <tr>
+                      <td colSpan={3} className="py-6 text-center text-slate-400">
+                        <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600" />
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : remetentes.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="py-6 text-center text-slate-400">
+                        Nenhum remetente cadastrado. Adicione um para poder disparar comunicados.
+                      </td>
+                    </tr>
+                  ) : (
+                    remetentes.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-50">
+                        <td className="py-3 px-4 font-semibold text-slate-900">{r.nome}</td>
+                        <td className="py-3 px-4 font-mono text-blue-700">{r.email}</td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenRemetenteModal(r)}
+                              title="Editar remetente"
+                              className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteRemetente(r.id, r.email)}
+                              title="Excluir remetente"
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR / NOVO REMETENTE */}
+      {remetenteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 scale-in">
+            <div className="flex items-center justify-between pb-2 border-b">
+              <h3 className="text-sm font-bold text-slate-900">
+                {editingRemetente ? 'Editar Remetente Permitido' : 'Novo Remetente Permitido'}
+              </h3>
+              <button
+                onClick={() => setRemetenteModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveRemetenteModal} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Nome de Exibição *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={remetenteFormData.nome}
+                  onChange={(e) =>
+                    setRemetenteFormData({ ...remetenteFormData, nome: e.target.value })
+                  }
+                  placeholder="Ex: Roland DG Brasil - Comunicações"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  E-mail Autorizado *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={remetenteFormData.email}
+                  onChange={(e) =>
+                    setRemetenteFormData({ ...remetenteFormData, email: e.target.value })
+                  }
+                  placeholder="Ex: comunicados@rolanddg.com.br"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRemetenteModalOpen(false)}
+                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm"
+                >
+                  Salvar Remetente
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -85,6 +85,13 @@ export const ComunicacoesScreen: React.FC = () => {
   const [customTesteQtd, setCustomTesteQtd] = useState<string>('5')
   const [intervaloSegundos, setIntervaloSegundos] = useState<number>(10)
 
+  // Diagnóstico do Provedor de E-mail
+  const [emailConfig, setEmailConfig] = useState<{
+    mode: 'real' | 'simulado'
+    configured: boolean
+    message: string
+  } | null>(null)
+
   // PASSO 3: CONFIRMAÇÃO E ENVIO
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -121,6 +128,13 @@ export const ComunicacoesScreen: React.FC = () => {
         setStatusRevenda(stats)
         setRemetentes(rems)
         setTemplates(tmps)
+
+        try {
+          const cfg = await adminService.getEmailConfig()
+          setEmailConfig(cfg)
+        } catch {
+          /* intentionally ignored */
+        }
 
         if (rems.length > 0) {
           setSelectedRemetente(rems[0].email)
@@ -323,9 +337,29 @@ export const ComunicacoesScreen: React.FC = () => {
         <h1 className="text-xl font-bold text-slate-900 tracking-tight">
           Comunicações Segmentadas por E-mail
         </h1>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Envios controlados, individuais e auditáveis para a rede autorizada
-        </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-0.5">
+          <p className="text-xs text-slate-500">
+            Envios controlados, individuais e auditáveis para a rede autorizada
+          </p>
+          {emailConfig && (
+            <div>
+              {emailConfig.configured ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Envio Real (SMTP Ativo)
+                </span>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                  title="Nenhum e-mail de fato é entregue para caixas postais reais enquanto o SMTP não for configurado"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  Simulado — nenhum e-mail enviado de fato
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* STEPPER */}
         <div className="mt-5 grid grid-cols-3 gap-2">
@@ -614,7 +648,17 @@ export const ComunicacoesScreen: React.FC = () => {
                         }}
                         className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="truncate">{r.nome}</span>
+                      <span
+                        className="truncate"
+                        title={r.codigo ? `[${r.codigo}] ${r.nome}` : r.nome}
+                      >
+                        {r.codigo ? (
+                          <span className="font-mono text-[10px] font-bold text-blue-700 mr-1">
+                            [{r.codigo}]
+                          </span>
+                        ) : null}
+                        {r.nome}
+                      </span>
                     </label>
                   )
                 })}
@@ -1024,6 +1068,7 @@ export const ComunicacoesScreen: React.FC = () => {
                   <thead className="bg-slate-50 text-slate-500 uppercase font-semibold sticky top-0">
                     <tr>
                       <th className="py-2 px-3">Nome</th>
+                      <th className="py-2 px-3">Cód. Revenda</th>
                       <th className="py-2 px-3">Revenda</th>
                       <th className="py-2 px-3">E-mail Utilizado</th>
                     </tr>
@@ -1032,6 +1077,9 @@ export const ComunicacoesScreen: React.FC = () => {
                     {destinatariosFinais.map((d) => (
                       <tr key={d.id}>
                         <td className="py-2 px-3 font-semibold">{d.nome}</td>
+                        <td className="py-2 px-3 font-mono text-[11px] font-semibold text-blue-700">
+                          {revendasMap.get(d.revenda)?.codigo || '—'}
+                        </td>
                         <td className="py-2 px-3 text-slate-500">
                           {revendasMap.get(d.revenda)?.nome || '—'}
                         </td>
@@ -1099,6 +1147,7 @@ export const ComunicacoesScreen: React.FC = () => {
                 <thead className="bg-slate-50 text-slate-500 uppercase font-semibold sticky top-0">
                   <tr>
                     <th className="py-2.5 px-3">Nome</th>
+                    <th className="py-2.5 px-3">Cód. Revenda</th>
                     <th className="py-2.5 px-3">Revenda</th>
                     <th className="py-2.5 px-3">E-mail Principal</th>
                     <th className="py-2.5 px-3">Telefone</th>
@@ -1108,6 +1157,9 @@ export const ComunicacoesScreen: React.FC = () => {
                   {destinatariosFiltrados.map((d) => (
                     <tr key={d.id} className="hover:bg-slate-50">
                       <td className="py-2.5 px-3 font-semibold">{d.nome}</td>
+                      <td className="py-2.5 px-3 font-mono text-[11px] font-semibold text-blue-700">
+                        {revendasMap.get(d.revenda)?.codigo || '—'}
+                      </td>
                       <td className="py-2.5 px-3 text-slate-600">
                         {revendasMap.get(d.revenda)?.nome || '—'}
                       </td>
@@ -1151,6 +1203,14 @@ export const ComunicacoesScreen: React.FC = () => {
                 no modo <strong className="text-blue-600">{tipoEnvio}</strong> com intervalo de{' '}
                 <strong className="text-slate-800">{intervaloSegundos}s</strong> entre cada um.
               </p>
+              {!emailConfig?.configured && (
+                <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg text-left text-[11px] text-amber-800">
+                  <span className="font-bold block mb-0.5">⚠️ Ambiente em Modo Simulado:</span>
+                  Nenhum e-mail sairá para a internet. O envio será registrado no banco e no
+                  Histórico com a etiqueta "Simulado — nenhum e-mail enviado de fato". Para envio
+                  real, configure as credenciais SMTP no ambiente.
+                </div>
+              )}
             </div>
 
             <div className="pt-2 flex items-center justify-center gap-3">

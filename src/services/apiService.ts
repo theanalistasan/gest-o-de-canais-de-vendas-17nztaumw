@@ -44,6 +44,15 @@ export const auxiliaresService = {
   async getRemetentes(): Promise<Remetente[]> {
     return pb.collection('remetentes').getFullList<Remetente>({ sort: 'nome' })
   },
+  async createRemetente(data: Partial<Remetente>): Promise<Remetente> {
+    return pb.collection('remetentes').create<Remetente>(data)
+  },
+  async updateRemetente(id: string, data: Partial<Remetente>): Promise<Remetente> {
+    return pb.collection('remetentes').update<Remetente>(id, data)
+  },
+  async deleteRemetente(id: string): Promise<boolean> {
+    return pb.collection('remetentes').delete(id)
+  },
   async getEmailTemplates(): Promise<EmailTemplate[]> {
     return pb.collection('email_templates').getFullList<EmailTemplate>({ sort: 'nome' })
   },
@@ -275,6 +284,33 @@ export const adminService = {
       })
     } catch (err) {
       console.warn('Não foi possível gravar auditoria manual:', err)
+    }
+  },
+
+  async getEmailConfig(): Promise<{
+    mode: 'real' | 'simulado'
+    configured: boolean
+    host: string
+    port: string
+    user: string
+    defaultSender: string
+    hasPassword: boolean
+    message: string
+  }> {
+    try {
+      const res = await pb.send('/backend/v1/email-config', { method: 'GET' })
+      return res
+    } catch (_) {
+      return {
+        mode: 'simulado',
+        configured: false,
+        host: '',
+        port: '',
+        user: '',
+        defaultSender: 'comunicados@rolanddg.com.br',
+        hasPassword: false,
+        message: 'Modo Simulado ativo: Nenhum e-mail real sai para a internet.',
+      }
     }
   },
 }

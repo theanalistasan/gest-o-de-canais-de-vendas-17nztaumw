@@ -1,5 +1,6 @@
 // Endpoint custom: /backend/v1/processar-envios
-// Dispara o processamento imediato dos envios pendentes de uma campanha ou de todas
+// Dispara o processamento dos envios pendentes de uma campanha ou de todas
+// Suporta envio REAL via SMTP configurado por env vars (SMTP_HOST, SMTP_PORT, etc.) ou SIMULADO se não configurado
 routerAdd(
   'POST',
   '/backend/v1/processar-envios',
@@ -20,6 +21,13 @@ routerAdd(
     let totalProcessados = 0
     let totalErros = 0
 
+    // Verificar se existe SMTP real configurado no ambiente
+    const smtpHost = $os.getenv('SMTP_HOST') || ''
+    const smtpPort = parseInt($os.getenv('SMTP_PORT') || '587', 10)
+    const smtpUser = $os.getenv('SMTP_USER') || $os.getenv('SMTP_USERNAME') || ''
+    const smtpPass = $os.getenv('SMTP_PASS') || $os.getenv('SMTP_PASSWORD') || ''
+    const hasSmtpConfig = !!(smtpHost && smtpHost.length > 2)
+
     for (let c = 0; c < campanhas.length; c++) {
       const camp = campanhas[c]
       const enviosPendentes = $app.findRecordsByFilter(
@@ -29,6 +37,10 @@ routerAdd(
         200,
         0,
       )
+
+      const campAssunto = camp.getString('assunto') || 'Comunicado'
+      const campCorpo = camp.getString('corpo') || ''
+      const campRemetente = camp.getString('remetente') || 'comunicados@rolanddg.com.br'
 
       for (let i = 0; i < enviosPendentes.length; i++) {
         const envio = enviosPendentes[i]
@@ -42,11 +54,86 @@ routerAdd(
           envio.set('data_envio', new Date().toISOString().replace('T', ' ').substring(0, 19))
           $app.save(envio)
           totalErros++
+          continue
+        }
+
+        // Buscar dados do contato e da revenda para resolver placeholders {{nome}} e {{revenda}}
+        let nomeContato = 'Prezado(a)'
+        let nomeRevenda = 'sua empresa'
+        try {
+          const contatoId = envio.getString('contato')
+          if (contatoId) {
+            const recContato = $app.findRecordById('contatos', contatoId)
+            nomeContato = recContato.getString('nome') || nomeContato
+          }
+          const revendaId = envio.getString('revenda')
+          if (revendaId) {
+            const recRevenda = $app.findRecordById('revendas', revendaId)
+            nomeRevenda = recRevenda.getString('nome') || nomeRevenda
+          }
+        } catch (_) {}
+
+        // Resolver mensagem personalizada
+        let corpoFinal = campCorpo
+        while (corpoFinal.indexOf('{{nome}}') !== -1) {
+          corpoFinal = corpoFinal.replace('{{nome}}', nomeContato)
+        }
+        while (corpoFinal.indexOf('{{revenda}}') !== -1) {
+          corpoFinal = corpoFinal.replace('{{revenda}}', nomeRevenda)
+        }
+
+        if (hasSmtpConfig) {
+          // ENVIO REAL VIA SMTP POCKETBASE
+          try {
+            // Assegura configurações SMTP temporariamente no settings
+            const settings = $app.settings()
+            settings.smtp.enabled = true
+            settings.smtp.host = smtpHost
+            settings.smtp.port = smtpPort
+            settings.smtp.username = smtpUser
+            settings.smtp.password = smtpPass
+            settings.smtp.tls = true
+            settings.meta.senderAddress = campRemetente
+            settings.meta.senderName = 'Roland DG Brasil'
+
+            const mailClient = $app.newMailClient()
+            const msg = new MailerMessage({
+              from: {
+                address: campRemetente,
+                name: 'Roland DG Brasil',
+              },
+              to: [{ address: email }],
+              subject: campAssunto,
+              html: corpoFinal.replace(/\n/g, '<br/>'),
+            })
+
+            mailClient.send(msg)
+
+            envio.set('status', 'Enviado')
+            envio.set('sucesso', true)
+            envio.set('erro', false)
+            envio.set('mensagem_erro', '')
+            envio.set('data_envio', new Date().toISOString().replace('T', ' ').substring(0, 19))
+            $app.save(envio)
+            totalProcessados++
+          } catch (sendErr) {
+            envio.set('status', 'Erro')
+            envio.set('erro', true)
+            envio.set('sucesso', false)
+            envio.set('mensagem_erro', 'Falha ao entregar SMTP: ' + sendErr)
+            envio.set('data_envio', new Date().toISOString().replace('T', ' ').substring(0, 19))
+            $app.save(envio)
+            totalErros++
+          }
         } else {
+          // ENVIO SIMULADO COM REGISTRO AUDITÁVEL
           envio.set('status', 'Enviado')
           envio.set('sucesso', true)
           envio.set('erro', false)
-          envio.set('mensagem_erro', '')
+          envio.set(
+            'mensagem_erro',
+            'Simulado — nenhum e-mail enviado de fato (SMTP não configurado)',
+          )
           envio.set('data_envio', new Date().toISOString().replace('T', ' ').substring(0, 19))
           $app.save(envio)
           totalProcessados++
@@ -65,6 +152,7 @@ routerAdd(
 
     return e.json(200, {
       success: true,
+      mode: hasSmtpConfig ? 'real' : 'simulado',
       totalProcessados: totalProcessados,
       totalErros: totalErros,
       campanhasAvaliadas: campanhas.length,

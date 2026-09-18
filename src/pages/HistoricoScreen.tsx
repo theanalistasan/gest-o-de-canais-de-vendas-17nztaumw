@@ -33,6 +33,7 @@ export const HistoricoScreen: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState(searchParams.get('status') || 'all')
   const [filterDataInicio, setFilterDataInicio] = useState('')
   const [filterDataFim, setFilterDataFim] = useState('')
+  const [searchGeral, setSearchGeral] = useState('')
 
   // Paginação
   const [currentPage, setCurrentPage] = useState(1)
@@ -78,9 +79,20 @@ export const HistoricoScreen: React.FC = () => {
         const itemDate = new Date(e.data_envio || e.created).toISOString().substring(0, 10)
         if (itemDate > filterDataFim) return false
       }
+      if (searchGeral.trim()) {
+        const q = searchGeral.toLowerCase().trim()
+        const matchCodigo = e.expand?.revenda?.codigo?.toLowerCase().includes(q)
+        const matchRevenda = e.expand?.revenda?.nome?.toLowerCase().includes(q)
+        const matchContato = e.expand?.contato?.nome?.toLowerCase().includes(q)
+        const matchEmail = e.email_utilizado?.toLowerCase().includes(q)
+        const matchCampanha = e.expand?.campanha?.nome?.toLowerCase().includes(q)
+        if (!matchCodigo && !matchRevenda && !matchContato && !matchEmail && !matchCampanha) {
+          return false
+        }
+      }
       return true
     })
-  }, [envios, filterCampanha, filterStatus, filterDataInicio, filterDataFim])
+  }, [envios, filterCampanha, filterStatus, filterDataInicio, filterDataFim, searchGeral])
 
   // Paginação
   const totalPages = Math.ceil(filteredEnvios.length / perPage) || 1
@@ -139,6 +151,7 @@ export const HistoricoScreen: React.FC = () => {
         e.expand?.campanha?.expand?.usuario?.email ||
         '',
       revenda: e.expand?.revenda?.nome || '',
+      codigo_revenda: e.expand?.revenda?.codigo || '',
       contato: e.expand?.contato?.nome || '',
       email: e.email_utilizado || '',
       status: e.status,
@@ -153,6 +166,7 @@ export const HistoricoScreen: React.FC = () => {
       { key: 'data_envio', label: 'Data/Hora' },
       { key: 'usuario', label: 'Usuário Responsável' },
       { key: 'revenda', label: 'Revenda' },
+      { key: 'codigo_revenda', label: 'Código da Revenda' },
       { key: 'contato', label: 'Contato' },
       { key: 'email', label: 'E-mail Utilizado' },
       { key: 'status', label: 'Status' },
@@ -168,6 +182,7 @@ export const HistoricoScreen: React.FC = () => {
       setFilterStatus('all')
       setFilterDataInicio('')
       setFilterDataFim('')
+      setSearchGeral('')
       setCurrentPage(1)
     })
   }
@@ -241,7 +256,27 @@ export const HistoricoScreen: React.FC = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+          {/* Busca Código/Revenda/Contato */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+              Busca (Cód. Revenda / Nome)
+            </label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={searchGeral}
+                onChange={(e) => {
+                  setSearchGeral(e.target.value)
+                  setCurrentPage(1)
+                }}
+                placeholder="Ex: C00099, Nome, E-mail..."
+                className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
           {/* Campanha */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-500 mb-1">Campanha</label>
@@ -323,6 +358,7 @@ export const HistoricoScreen: React.FC = () => {
               <tr>
                 <th className="py-3 px-4">Campanha / Assunto</th>
                 <th className="py-3 px-4">Data/Hora</th>
+                <th className="py-3 px-4">Cód. Revenda</th>
                 <th className="py-3 px-4">Revenda</th>
                 <th className="py-3 px-4">Contato</th>
                 <th className="py-3 px-4">E-mail Utilizado</th>
@@ -334,14 +370,14 @@ export const HistoricoScreen: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto text-blue-600 mb-2" />
                     <span>Carregando histórico de envios...</span>
                   </td>
                 </tr>
               ) : paginatedEnvios.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <History className="h-8 w-8 mx-auto text-slate-300 mb-2" />
                     <span>Nenhum envio registrado no histórico.</span>
                   </td>
@@ -366,6 +402,17 @@ export const HistoricoScreen: React.FC = () => {
                         : new Date(env.created).toLocaleString('pt-BR')}
                     </td>
 
+                    {/* Código Revenda */}
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      {env.expand?.revenda?.codigo ? (
+                        <span className="font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                          {env.expand.revenda.codigo}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 italic">—</span>
+                      )}
+                    </td>
+
                     {/* Revenda */}
                     <td className="py-3 px-4 text-slate-700 font-medium">
                       {env.expand?.revenda?.nome || '—'}
@@ -385,7 +432,7 @@ export const HistoricoScreen: React.FC = () => {
                     <td className="py-3 px-4 whitespace-nowrap">{getStatusBadge(env.status)}</td>
 
                     {/* Diagnóstico */}
-                    <td className="py-3 px-4 max-w-[180px]">
+                    <td className="py-3 px-4 max-w-[200px]">
                       {env.erro && env.mensagem_erro ? (
                         <span
                           className="text-[11px] text-red-600 font-medium truncate block"
@@ -393,8 +440,15 @@ export const HistoricoScreen: React.FC = () => {
                         >
                           {env.mensagem_erro}
                         </span>
+                      ) : env.mensagem_erro && env.mensagem_erro.includes('Simulado') ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200"
+                          title={env.mensagem_erro}
+                        >
+                          Simulado — nenhum e-mail enviado de fato
+                        </span>
                       ) : env.sucesso ? (
-                        <span className="text-[11px] text-emerald-600">
+                        <span className="text-[11px] text-emerald-600 font-medium">
                           Registro auditado com sucesso
                         </span>
                       ) : (
@@ -538,6 +592,11 @@ export const HistoricoScreen: React.FC = () => {
                   <span className="font-semibold text-slate-800">
                     {selectedEnvio.expand?.revenda?.nome || '—'}
                   </span>
+                  {selectedEnvio.expand?.revenda?.codigo && (
+                    <span className="block font-mono text-xs text-blue-700 font-semibold mt-0.5">
+                      Código: {selectedEnvio.expand.revenda.codigo}
+                    </span>
+                  )}
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">
@@ -553,6 +612,14 @@ export const HistoricoScreen: React.FC = () => {
                 <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">
                   <strong className="block font-semibold">Mensagem de Erro:</strong>
                   {selectedEnvio.mensagem_erro}
+                </div>
+              )}
+
+              {selectedEnvio.mensagem_erro && selectedEnvio.mensagem_erro.includes('Simulado') && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                  <strong className="block font-semibold">Modo de Envio:</strong>
+                  Simulado — nenhum e-mail enviado de fato (as mensagens são registradas e auditadas
+                  para testes, sem entrega na caixa postal real).
                 </div>
               )}
 

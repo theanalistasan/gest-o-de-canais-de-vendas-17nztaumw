@@ -15,6 +15,7 @@ import {
   Loader2,
   X,
   ExternalLink,
+  Check,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { revendasService, contatosService, auxiliaresService } from '@/services/apiService'
@@ -34,6 +35,9 @@ export const RevendaDetailScreen: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingContato, setEditingContato] = useState<Contato | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [inlineCargoMode, setInlineCargoMode] = useState(false)
+  const [inlineCargoValue, setInlineCargoValue] = useState('')
+  const [isSavingCargo, setIsSavingCargo] = useState(false)
   const [formData, setFormData] = useState({
     nome: '',
     cargo: '',
@@ -76,6 +80,8 @@ export const RevendaDetailScreen: React.FC = () => {
   }, [id])
 
   const handleOpenContatoModal = (contato?: Contato) => {
+    setInlineCargoMode(false)
+    setInlineCargoValue('')
     if (contato) {
       setEditingContato(contato)
       setFormData({
@@ -110,6 +116,27 @@ export const RevendaDetailScreen: React.FC = () => {
       })
     }
     setIsModalOpen(true)
+  }
+
+  const handleSaveInlineCargo = async () => {
+    const val = inlineCargoValue.trim()
+    if (!val) {
+      setInlineCargoMode(false)
+      return
+    }
+    setIsSavingCargo(true)
+    try {
+      const created = await auxiliaresService.createCargo({ nome: val })
+      setCargos((prev) => [...prev, created])
+      setFormData((prev) => ({ ...prev, cargo: created.id }))
+      setInlineCargoValue('')
+      setInlineCargoMode(false)
+    } catch (err) {
+      console.error('Erro ao cadastrar cargo inline:', err)
+      alert('Erro ao cadastrar novo cargo.')
+    } finally {
+      setIsSavingCargo(false)
+    }
   }
 
   const handleSaveContato = async (e: React.FormEvent) => {
@@ -216,9 +243,13 @@ export const RevendaDetailScreen: React.FC = () => {
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <h1 className="text-xl font-bold text-slate-900 tracking-tight">{revenda.nome}</h1>
-              {revenda.codigo && (
-                <span className="px-2.5 py-0.5 rounded-full font-mono text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                  {revenda.codigo}
+              {revenda.codigo ? (
+                <span className="px-2.5 py-0.5 rounded-full font-mono text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-sm">
+                  Código da Revenda: {revenda.codigo}
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500 italic">
+                  Sem código cadastrado
                 </span>
               )}
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -491,19 +522,64 @@ export const RevendaDetailScreen: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cargo</label>
-                  <select
-                    value={formData.cargo}
-                    onChange={(e) => setFormData({ ...formData, cargo: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
-                  >
-                    <option value="">Selecione um cargo</option>
-                    {cargos.map((cg) => (
-                      <option key={cg.id} value={cg.id}>
-                        {cg.nome}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">Cargo</label>
+                    {!inlineCargoMode ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInlineCargoMode(true)
+                          setInlineCargoValue('')
+                        }}
+                        className="text-[11px] text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-0.5"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Novo cargo</span>
+                      </button>
+                    ) : null}
+                  </div>
+                  {inlineCargoMode ? (
+                    <div className="flex items-center gap-1.5 animate-in fade-in">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={inlineCargoValue}
+                        onChange={(e) => setInlineCargoValue(e.target.value)}
+                        placeholder="Nome do novo cargo..."
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-blue-400 rounded-lg focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={isSavingCargo || !inlineCargoValue.trim()}
+                        onClick={handleSaveInlineCargo}
+                        className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        title="Salvar cargo"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInlineCargoMode(false)}
+                        className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+                        title="Cancelar"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.cargo}
+                      onChange={(e) => setFormData({ ...formData, cargo: e.target.value })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+                    >
+                      <option value="">Selecione um cargo</option>
+                      {cargos.map((cg) => (
+                        <option key={cg.id} value={cg.id}>
+                          {cg.nome}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">

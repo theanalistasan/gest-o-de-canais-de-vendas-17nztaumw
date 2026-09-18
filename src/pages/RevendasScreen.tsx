@@ -15,9 +15,11 @@ import {
   Loader2,
   X,
   Store,
+  Check,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { revendasService, auxiliaresService } from '@/services/apiService'
+import { getCidadesPorUf } from '@/services/ibgeService'
 import { exportToCSV } from '@/lib/exportCsv'
 import type {
   Revenda,
@@ -67,6 +69,16 @@ export const RevendasScreen: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingRevenda, setEditingRevenda] = useState<Revenda | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [cidadesList, setCidadesList] = useState<string[]>([])
+  const [isLoadingCidades, setIsLoadingCidades] = useState(false)
+
+  // Estados inline para criar novos registros
+  const [inlineMode, setInlineMode] = useState<
+    'none' | 'segmento' | 'inside_sales' | 'responsavel' | 'canal_faturamento'
+  >('none')
+  const [inlineValue, setInlineValue] = useState('')
+  const [isSavingInline, setIsSavingInline] = useState(false)
+
   const [formData, setFormData] = useState({
     codigo: '',
     nome: '',
@@ -116,12 +128,15 @@ export const RevendasScreen: React.FC = () => {
     return revendas.filter((r) => {
       if (
         searchCodigo &&
-        (!r.codigo || !r.codigo.toLowerCase().includes(searchCodigo.toLowerCase()))
+        (!r.codigo || !r.codigo.toLowerCase().includes(searchCodigo.trim().toLowerCase()))
       ) {
         return false
       }
-      if (searchNome && !r.nome.toLowerCase().includes(searchNome.toLowerCase())) {
-        return false
+      if (searchNome) {
+        const qNome = searchNome.trim().toLowerCase()
+        const matchesNome = r.nome?.toLowerCase().includes(qNome)
+        const matchesCodigo = r.codigo?.toLowerCase().includes(qNome)
+        if (!matchesNome && !matchesCodigo) return false
       }
       if (
         filterCidade &&
@@ -183,7 +198,42 @@ export const RevendasScreen: React.FC = () => {
     }
   }
 
+  // Carregar cidades quando o estado do form muda
+  useEffect(() => {
+    if (!formData.estado) {
+      setCidadesList([])
+      return
+    }
+    const est = estados.find((e) => e.id === formData.estado)
+    if (!est) {
+      setCidadesList([])
+      return
+    }
+
+    let isMounted = true
+    setIsLoadingCidades(true)
+    getCidadesPorUf(est.uf)
+      .then((cidades) => {
+        if (!isMounted) return
+        // Adicionar também a cidade atual caso não esteja na lista
+        let finalCidades = [...cidades]
+        if (formData.cidade && !finalCidades.includes(formData.cidade)) {
+          finalCidades.unshift(formData.cidade)
+        }
+        setCidadesList(finalCidades)
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingCidades(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [formData.estado, estados])
+
   const handleOpenModal = (revenda?: Revenda) => {
+    setInlineMode('none')
+    setInlineValue('')
     if (revenda) {
       setEditingRevenda(revenda)
       setFormData({
@@ -214,6 +264,45 @@ export const RevendasScreen: React.FC = () => {
       })
     }
     setIsModalOpen(true)
+  }
+
+  // Função inline para cadastrar novo valor e selecionar automaticamente
+  const handleSaveInline = async (
+    type: 'segmento' | 'inside_sales' | 'responsavel' | 'canal_faturamento',
+  ) => {
+    const val = inlineValue.trim()
+    if (!val) {
+      setInlineMode('none')
+      return
+    }
+
+    setIsSavingInline(true)
+    try {
+      if (type === 'segmento') {
+        const created = await auxiliaresService.createSegmento({ nome: val })
+        setSegmentos((prev) => [...prev, created])
+        setFormData((prev) => ({ ...prev, segmento: created.id }))
+      } else if (type === 'inside_sales') {
+        const created = await auxiliaresService.createInsideSales({ nome: val, ativo: true })
+        setInsideSales((prev) => [...prev, created])
+        setFormData((prev) => ({ ...prev, inside_sales: created.id }))
+      } else if (type === 'responsavel') {
+        const created = await auxiliaresService.createResponsavel({ nome: val, ativo: true })
+        setResponsaveis((prev) => [...prev, created])
+        setFormData((prev) => ({ ...prev, responsavel: created.id }))
+      } else if (type === 'canal_faturamento') {
+        const created = await auxiliaresService.createCanalFaturamento({ nome: val })
+        setCanais((prev) => [...prev, created])
+        setFormData((prev) => ({ ...prev, canal_faturamento: created.id }))
+      }
+      setInlineValue('')
+      setInlineMode('none')
+    } catch (err) {
+      console.error('Erro ao cadastrar valor inline:', err)
+      alert('Erro ao cadastrar novo valor. Tente novamente.')
+    } finally {
+      setIsSavingInline(false)
+    }
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -634,12 +723,21 @@ export const RevendasScreen: React.FC = () => {
               ) : (
                 paginatedRevendas.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/80 transition-colors group">
-                    <td className="py-3 px-4 font-mono font-medium text-blue-700 whitespace-nowrap">
-                      {r.codigo || '—'}
+                    <td className="py-3 px-4 font-mono font-medium whitespace-nowrap">
+                      {r.codigo ? (
+                        <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200 text-xs">
+                          {r.codigo}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 italic">Sem cód.</span>
+                      )}
                     </td>
                     <td className="py-3 px-4 font-semibold text-slate-900">
-                      <Link to={`/revendas/${r.id}`} className="hover:text-blue-600">
-                        {r.nome}
+                      <Link
+                        to={`/revendas/${r.id}`}
+                        className="hover:text-blue-600 inline-flex items-center gap-1.5"
+                      >
+                        <span>{r.nome}</span>
                       </Link>
                     </td>
                     <td className="py-3 px-4 text-slate-600">{r.expand?.segmento?.nome || '—'}</td>
@@ -792,23 +890,67 @@ export const RevendasScreen: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Segmento *
-                  </label>
-                  <select
-                    required
-                    value={formData.segmento}
-                    onChange={(e) => setFormData({ ...formData, segmento: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
-                  >
-                    <option value="">Selecione um segmento</option>
-                    {segmentos.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.nome}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">Segmento *</label>
+                    {inlineMode !== 'segmento' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInlineMode('segmento')
+                          setInlineValue('')
+                        }}
+                        className="text-[11px] text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-0.5"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Novo segmento</span>
+                      </button>
+                    ) : null}
+                  </div>
+                  {inlineMode === 'segmento' ? (
+                    <div className="flex items-center gap-1.5 animate-in fade-in">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={inlineValue}
+                        onChange={(e) => setInlineValue(e.target.value)}
+                        placeholder="Nome do novo segmento..."
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-blue-400 rounded-lg focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={isSavingInline || !inlineValue.trim()}
+                        onClick={() => handleSaveInline('segmento')}
+                        className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        title="Salvar segmento"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInlineMode('none')}
+                        className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+                        title="Cancelar"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      required
+                      value={formData.segmento}
+                      onChange={(e) => setFormData({ ...formData, segmento: e.target.value })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+                    >
+                      <option value="">Selecione um segmento</option>
+                      {segmentos.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nome}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Status da Revenda *
@@ -830,69 +972,210 @@ export const RevendasScreen: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Inside Sales com cadastro inline */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Inside Sales
-                  </label>
-                  <select
-                    value={formData.inside_sales}
-                    onChange={(e) => setFormData({ ...formData, inside_sales: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
-                  >
-                    <option value="">Nenhum / Selecione</option>
-                    {insideSales.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.nome}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">Inside Sales</label>
+                    {inlineMode !== 'inside_sales' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInlineMode('inside_sales')
+                          setInlineValue('')
+                        }}
+                        className="text-[11px] text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-0.5"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Novo</span>
+                      </button>
+                    ) : null}
+                  </div>
+                  {inlineMode === 'inside_sales' ? (
+                    <div className="flex items-center gap-1.5 animate-in fade-in">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={inlineValue}
+                        onChange={(e) => setInlineValue(e.target.value)}
+                        placeholder="Nome do consultor..."
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-blue-400 rounded-lg focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={isSavingInline || !inlineValue.trim()}
+                        onClick={() => handleSaveInline('inside_sales')}
+                        className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        title="Salvar"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInlineMode('none')}
+                        className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+                        title="Cancelar"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.inside_sales}
+                      onChange={(e) => setFormData({ ...formData, inside_sales: e.target.value })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+                    >
+                      <option value="">Nenhum / Selecione</option>
+                      {insideSales.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.nome}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
+
+                {/* Responsável Comercial com cadastro inline */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Responsável Comercial
-                  </label>
-                  <select
-                    value={formData.responsavel}
-                    onChange={(e) => setFormData({ ...formData, responsavel: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
-                  >
-                    <option value="">Nenhum / Selecione</option>
-                    {responsaveis.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.nome}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      Responsável Comercial
+                    </label>
+                    {inlineMode !== 'responsavel' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInlineMode('responsavel')
+                          setInlineValue('')
+                        }}
+                        className="text-[11px] text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-0.5"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Novo</span>
+                      </button>
+                    ) : null}
+                  </div>
+                  {inlineMode === 'responsavel' ? (
+                    <div className="flex items-center gap-1.5 animate-in fade-in">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={inlineValue}
+                        onChange={(e) => setInlineValue(e.target.value)}
+                        placeholder="Nome do responsável..."
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-blue-400 rounded-lg focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={isSavingInline || !inlineValue.trim()}
+                        onClick={() => handleSaveInline('responsavel')}
+                        className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        title="Salvar"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInlineMode('none')}
+                        className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+                        title="Cancelar"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.responsavel}
+                      onChange={(e) => setFormData({ ...formData, responsavel: e.target.value })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+                    >
+                      <option value="">Nenhum / Selecione</option>
+                      {responsaveis.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.nome}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
+
+                {/* Canal Faturamento com cadastro inline */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Canal Faturamento
-                  </label>
-                  <select
-                    value={formData.canal_faturamento}
-                    onChange={(e) =>
-                      setFormData({ ...formData, canal_faturamento: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
-                  >
-                    <option value="">Nenhum / Selecione</option>
-                    {canais.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      Canal Faturamento
+                    </label>
+                    {inlineMode !== 'canal_faturamento' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInlineMode('canal_faturamento')
+                          setInlineValue('')
+                        }}
+                        className="text-[11px] text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-0.5"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Novo</span>
+                      </button>
+                    ) : null}
+                  </div>
+                  {inlineMode === 'canal_faturamento' ? (
+                    <div className="flex items-center gap-1.5 animate-in fade-in">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={inlineValue}
+                        onChange={(e) => setInlineValue(e.target.value)}
+                        placeholder="Nome do canal..."
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-blue-400 rounded-lg focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={isSavingInline || !inlineValue.trim()}
+                        onClick={() => handleSaveInline('canal_faturamento')}
+                        className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        title="Salvar"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInlineMode('none')}
+                        className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+                        title="Cancelar"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.canal_faturamento}
+                      onChange={(e) =>
+                        setFormData({ ...formData, canal_faturamento: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+                    >
+                      <option value="">Nenhum / Selecione</option>
+                      {canais.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nome}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               </div>
 
+              {/* Estado e Cidade Sanitizados com IBGE */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Estado (UF)
+                    Estado (UF) *
                   </label>
                   <select
                     value={formData.estado}
-                    onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, estado: e.target.value, cidade: '' })
+                    }}
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
                   >
                     <option value="">Selecione o estado</option>
@@ -903,15 +1186,37 @@ export const RevendasScreen: React.FC = () => {
                     ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cidade</label>
-                  <input
-                    type="text"
-                    value={formData.cidade}
-                    onChange={(e) => setFormData({ ...formData, cidade: e.target.value })}
-                    placeholder="Cidade sede da revenda"
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      Cidade {isLoadingCidades ? '(carregando IBGE...)' : ''}
+                    </label>
+                    {formData.estado && (
+                      <span className="text-[10px] text-slate-400">
+                        {cidadesList.length} cidades disponíveis
+                      </span>
+                    )}
+                  </div>
+                  {formData.estado ? (
+                    <select
+                      value={formData.cidade}
+                      onChange={(e) => setFormData({ ...formData, cidade: e.target.value })}
+                      disabled={isLoadingCidades}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white disabled:bg-slate-50"
+                    >
+                      <option value="">Selecione a cidade...</option>
+                      {cidadesList.map((cid) => (
+                        <option key={cid} value={cid}>
+                          {cid}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="px-3 py-2 text-xs border border-slate-200 bg-slate-50 text-slate-400 rounded-lg italic">
+                      Selecione o estado primeiro para listar as cidades
+                    </div>
+                  )}
                 </div>
               </div>
 

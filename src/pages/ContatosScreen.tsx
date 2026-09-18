@@ -106,7 +106,9 @@ export const ContatosScreen: React.FC = () => {
         const matchesTel =
           c.telefone?.includes(q) || c.celular?.includes(q) || c.whatsapp?.includes(q)
         const matchesRev = c.expand?.revenda?.nome?.toLowerCase().includes(q) || false
-        if (!matchesNome && !matchesEmail && !matchesTel && !matchesRev) return false
+        const matchesRevCodigo = c.expand?.revenda?.codigo?.toLowerCase().includes(q) || false
+        if (!matchesNome && !matchesEmail && !matchesTel && !matchesRev && !matchesRevCodigo)
+          return false
       }
       if (filterRevenda !== 'all' && c.revenda !== filterRevenda) return false
       if (filterCargo !== 'all' && c.cargo !== filterCargo) return false
@@ -391,7 +393,7 @@ export const ContatosScreen: React.FC = () => {
                   setSearchGeral(e.target.value)
                   setCurrentPage(1)
                 }}
-                placeholder="Nome, e-mail, telefone ou revenda..."
+                placeholder="Nome, e-mail, tel, revenda ou cód. revenda..."
                 className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -411,6 +413,7 @@ export const ContatosScreen: React.FC = () => {
               <option value="all">Todas as revendas</option>
               {revendas.map((r) => (
                 <option key={r.id} value={r.id}>
+                  {r.codigo ? `[${r.codigo}] ` : ''}
                   {r.nome}
                 </option>
               ))}
@@ -587,13 +590,22 @@ export const ContatosScreen: React.FC = () => {
                     {/* Revenda */}
                     <td className="py-3 px-4">
                       {c.expand?.revenda ? (
-                        <Link
-                          to={`/revendas/${c.expand.revenda.id}`}
-                          className="font-medium text-blue-600 hover:underline flex items-center gap-1"
-                        >
-                          <span>{c.expand.revenda.nome}</span>
-                          <ExternalLink className="h-3 w-3" />
-                        </Link>
+                        <div>
+                          <Link
+                            to={`/revendas/${c.expand.revenda.id}`}
+                            className="font-medium text-blue-600 hover:underline inline-flex items-center gap-1"
+                          >
+                            <span>{c.expand.revenda.nome}</span>
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                          {c.expand.revenda.codigo && (
+                            <div className="mt-0.5">
+                              <span className="font-mono text-[11px] font-semibold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+                                Cód: {c.expand.revenda.codigo}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}
@@ -765,13 +777,14 @@ export const ContatosScreen: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, revenda: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
                 >
-                  <option value="">Selecione a revenda</option>
+                  <option value="">Selecione a revenda...</option>
                   {revendas.map((r) => (
                     <option key={r.id} value={r.id}>
-                      {r.nome} {r.codigo ? `(${r.codigo})` : ''}
+                      {r.codigo ? `[${r.codigo}] ` : ''}
+                      {r.nome}
                     </option>
                   ))}
-                </select>
+                </select>{' '}
               </div>
 
               <div>

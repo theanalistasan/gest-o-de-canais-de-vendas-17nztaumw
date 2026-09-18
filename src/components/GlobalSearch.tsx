@@ -79,9 +79,11 @@ export const GlobalSearch: React.FC = () => {
         const rCod: Revenda[] = []
         const rNome: Revenda[] = []
         for (const r of revendas.items) {
-          if (r.codigo && r.codigo.toLowerCase().includes(queryLower)) {
+          const matchCod = r.codigo && r.codigo.toLowerCase().includes(queryLower)
+          const matchNome = r.nome.toLowerCase().includes(queryLower)
+          if (matchCod) {
             if (rCod.length < 8) rCod.push(r)
-          } else if (r.nome.toLowerCase().includes(queryLower)) {
+          } else if (matchNome) {
             if (rNome.length < 8) rNome.push(r)
           }
         }
@@ -260,7 +262,7 @@ export const GlobalSearch: React.FC = () => {
                     </span>
                     <span className="text-xs text-slate-400">
                       {c.expand?.revenda
-                        ? `Revenda: ${c.expand.revenda.nome}`
+                        ? `Revenda: ${c.expand.revenda.codigo ? `[${c.expand.revenda.codigo}] ` : ''}${c.expand.revenda.nome}`
                         : c.email || 'Sem e-mail'}
                     </span>
                   </div>
