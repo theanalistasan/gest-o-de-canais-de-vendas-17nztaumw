@@ -19,26 +19,16 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
       const camp = campanhas[c]
       const enviosPendentes = $app.findRecordsByFilter(
         'envios',
-        "campanha = {:campanhaId} && status = 'Pendente'",
+        "campanha = {:campId} && status = 'Pendente'",
         'created',
         50,
         0,
-        { campanhaId: camp.id },
+        { campId: camp.id },
       )
 
       if (enviosPendentes.length === 0) {
-        const restantes = $app.findRecordsByFilter(
-          'envios',
-          "campanha = {:campanhaId} && status = 'Pendente'",
-          'created',
-          1,
-          0,
-          { campanhaId: camp.id },
-        )
-        if (restantes.length === 0) {
-          camp.set('status', 'Concluida')
-          $app.save(camp)
-        }
+        camp.set('status', 'Concluida')
+        $app.save(camp)
         continue
       }
 
@@ -147,11 +137,11 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
 
       const restantesApos = $app.findRecordsByFilter(
         'envios',
-        "campanha = {:campanhaId} && status = 'Pendente'",
+        "campanha = {:campId} && status = 'Pendente'",
         'created',
         1,
         0,
-        { campanhaId: camp.id },
+        { campId: camp.id },
       )
       if (restantesApos.length === 0) {
         camp.set('status', 'Concluida')

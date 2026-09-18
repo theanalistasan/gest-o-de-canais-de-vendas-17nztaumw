@@ -12,15 +12,26 @@ import {
   Eye,
   Loader2,
   X,
-  FileSpreadsheet,
   Search,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { comunicacoesService } from '@/services/apiService'
 import { exportToCSV } from '@/lib/exportCsv'
+import { useToast } from '@/hooks/use-toast'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { Envio, Campanha } from '@/types'
 
 export const HistoricoScreen: React.FC = () => {
+  const { toast } = useToast()
   const { canWrite } = useAuth()
   const [, startTransition] = useTransition()
   const [searchParams] = useSearchParams()
@@ -43,8 +54,13 @@ export const HistoricoScreen: React.FC = () => {
   // Modal Detalhes do Envio / Campanha
   const [selectedEnvio, setSelectedEnvio] = useState<Envio | null>(null)
 
-  // Reenvio manual
-  const [isReenviando, setIsReenviando] = useState(false)
+  // Reenvio individual (modal de confirmação)
+  const [envioParaReenviar, setEnvioParaReenviar] = useState<Envio | null>(null)
+  const [reenviandoId, setReenviandoId] = useState<string | null>(null)
+
+  // Reenvio em lote de erros da campanha filtrada
+  const [isLoteModalOpen, setIsLoteModalOpen] = useState(false)
+  const [isReenviandoLote, setIsReenviandoLote] = useState(false)
 
   const loadData = async () => {
     setIsLoading(true)
@@ -102,41 +118,128 @@ export const HistoricoScreen: React.FC = () => {
     return filteredEnvios.slice(start, start + perPage)
   }, [filteredEnvios, currentPage, perPage])
 
-  // Reenviar manual para envio com erro (NUNCA automático)
-  const handleReenviar = async (envio: Envio) => {
-    if (!canWrite) return
-    if (
-      !confirm(
-        `Deseja reenviar a mensagem para "${envio.email_utilizado}"? Um novo envio será enfileirado.`,
-      )
-    ) {
-      return
-    }
+  // Executar reenvio individual confirmado
+  const handleConfirmReenviar = async () => {
+    if (!envioParaReenviar || !canWrite) return
+    const alvo = envioParaReenviar
+    setReenviandoId(alvo.id)
+    setEnvioParaReenviar(null)
 
-    setIsReenviando(true)
+    // Atualização otimista: colocar em 'Pendente' visualmente enquanto o SMTP processa
+    setEnvios((prev) =>
+      prev.map((item) =>
+        item.id === alvo.id
+          ? {
+              ...item,
+              status: 'Pendente',
+              erro: false,
+              mensagem_erro: 'Reenviando via SMTP...',
+            }
+          : item,
+      ),
+    )
+
     try {
-      // Cria novo envio pendente para o contato
-      const novoEnvio = await comunicacoesService.createEnvio({
-        campanha: envio.campanha,
-        contato: envio.contato,
-        revenda: envio.revenda,
-        email_utilizado: envio.email_utilizado,
+      // 1. Atualizar o envio existente para 'Pendente' para ser reprocessado
+      const pb = (await import('@/lib/pocketbase/client')).default
+      await pb.collection('envios').update(alvo.id, {
         status: 'Pendente',
-        sucesso: false,
         erro: false,
+        sucesso: false,
         mensagem_erro: '',
       })
 
-      // Dispara o processamento imediato
-      await comunicacoesService.triggerProcessarEnvios(envio.campanha)
+      // 2. Disparar processamento imediato no backend para este envio específico
+      const res = await comunicacoesService.triggerProcessarEnvios(alvo.campanha, alvo.id)
 
-      alert('Reenvio enfileirado com sucesso!')
+      // 3. Buscar o registro atualizado do banco para refletir a resposta exata do servidor
+      const envioAtualizado = await comunicacoesService.getEnvioById(alvo.id)
+
+      setEnvios((prev) => prev.map((item) => (item.id === alvo.id ? envioAtualizado : item)))
+
+      if (selectedEnvio && selectedEnvio.id === alvo.id) {
+        setSelectedEnvio(envioAtualizado)
+      }
+
+      if (envioAtualizado.status === 'Enviado') {
+        toast({
+          title: 'Mensagem reenviada com sucesso!',
+          description: `Disparo entregue para ${alvo.email_utilizado}.`,
+          variant: 'default',
+        })
+      } else {
+        toast({
+          title: 'Falha no reenvio',
+          description:
+            envioAtualizado.mensagem_erro ||
+            res.ultimaMensagemErro ||
+            'O servidor retornou um erro ao tentar reenviar.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: unknown) {
+      console.error('Erro ao reenviar:', err)
+      const msg = err instanceof Error ? err.message : 'Falha na comunicação com o servidor'
+      toast({
+        title: 'Erro no reenvio',
+        description: msg,
+        variant: 'destructive',
+      })
+      // Recarregar estado real
       await loadData()
-    } catch (err) {
-      console.error(err)
-      alert('Erro ao reenviar mensagem.')
     } finally {
-      setIsReenviando(false)
+      setReenviandoId(null)
+    }
+  }
+
+  // Executar reenvio em lote de envios com erro da campanha selecionada
+  const handleConfirmReenviarLote = async () => {
+    if (!canWrite || filterCampanha === 'all') return
+    setIsReenviandoLote(true)
+    setIsLoteModalOpen(false)
+
+    try {
+      const errosDaCampanha = envios.filter(
+        (e) => e.campanha === filterCampanha && e.status === 'Erro',
+      )
+      if (errosDaCampanha.length === 0) {
+        toast({
+          title: 'Nenhum envio com erro',
+          description: 'Esta campanha não possui envios pendentes ou com erro para reprocessar.',
+        })
+        return
+      }
+
+      const pb = (await import('@/lib/pocketbase/client')).default
+      // Atualizar todos com erro para Pendente
+      for (const e of errosDaCampanha) {
+        await pb.collection('envios').update(e.id, {
+          status: 'Pendente',
+          erro: false,
+          sucesso: false,
+          mensagem_erro: '',
+        })
+      }
+
+      // Disparar processamento da campanha inteira
+      const res = await comunicacoesService.triggerProcessarEnvios(filterCampanha)
+
+      toast({
+        title: 'Reenvio em lote concluído',
+        description: `Processados: ${res.totalProcessados}. Erros: ${res.totalErros}.`,
+        variant: res.totalErros > 0 ? 'destructive' : 'default',
+      })
+
+      await loadData()
+    } catch (err: unknown) {
+      console.error(err)
+      toast({
+        title: 'Erro ao processar lote',
+        description: 'Não foi possível reprocessar os envios da campanha.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsReenviandoLote(false)
     }
   }
 
@@ -231,6 +334,29 @@ export const HistoricoScreen: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2.5">
+          {canWrite && filterCampanha !== 'all' && (
+            <button
+              onClick={() => setIsLoteModalOpen(true)}
+              disabled={
+                isReenviandoLote ||
+                envios.filter((e) => e.campanha === filterCampanha && e.status === 'Erro')
+                  .length === 0
+              }
+              className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold shadow-sm transition-colors disabled:opacity-40"
+              title="Reenviar todos os envios com erro desta campanha"
+            >
+              {isReenviandoLote ? (
+                <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+              ) : (
+                <RotateCw className="h-4 w-4 text-amber-600" />
+              )}
+              <span>
+                Reenviar Erros da Campanha (
+                {envios.filter((e) => e.campanha === filterCampanha && e.status === 'Erro').length})
+              </span>
+            </button>
+          )}
+
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold shadow-sm transition-colors"
@@ -460,24 +586,32 @@ export const HistoricoScreen: React.FC = () => {
                     {/* Ações */}
                     <td className="py-3 px-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
+                        {/* Ação clara de reenvio */}
+                        {canWrite && env.status === 'Erro' && (
+                          <button
+                            type="button"
+                            onClick={() => setEnvioParaReenviar(env)}
+                            disabled={reenviandoId === env.id || isReenviandoLote}
+                            title="Reenviar mensagem para este destinatário"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300 transition-colors disabled:opacity-40"
+                          >
+                            {reenviandoId === env.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-amber-600" />
+                            ) : (
+                              <RotateCw className="h-3 w-3 text-amber-600" />
+                            )}
+                            <span>Reenviar</span>
+                          </button>
+                        )}
+
                         <button
                           onClick={() => setSelectedEnvio(env)}
                           title="Ver detalhes da comunicação"
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-md border border-slate-200 transition-colors"
                         >
-                          <Eye className="h-4 w-4" />
+                          <Eye className="h-3.5 w-3.5" />
+                          <span>Detalhes</span>
                         </button>
-                        {/* Reenvio apenas para mensagens com erro */}
-                        {env.status === 'Erro' && canWrite && (
-                          <button
-                            onClick={() => handleReenviar(env)}
-                            disabled={isReenviando}
-                            title="Reenviar manualmente para este contato"
-                            className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded transition-colors disabled:opacity-40"
-                          >
-                            <RotateCw className="h-4 w-4" />
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -534,6 +668,136 @@ export const HistoricoScreen: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* MODAL SHADCN DE CONFIRMAÇÃO DE REENVIO INDIVIDUAL */}
+      <AlertDialog
+        open={!!envioParaReenviar}
+        onOpenChange={(open) => !open && setEnvioParaReenviar(null)}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-2">
+              <RotateCw className="h-5 w-5" />
+            </div>
+            <AlertDialogTitle className="text-base text-slate-900">
+              Confirmar Reenvio de E-mail
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-600 space-y-2 pt-1 text-left">
+              <span>
+                Você está prestes a realizar uma <strong>nova tentativa real de disparo</strong> via
+                servidor SMTP para o seguinte destinatário:
+              </span>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
+                <div>
+                  <span className="font-semibold text-slate-500">Destinatário: </span>
+                  <span className="font-medium">
+                    {envioParaReenviar?.expand?.contato?.nome || 'Contato'}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-semibold text-slate-500">E-mail: </span>
+                  <span className="font-mono text-blue-700 font-medium">
+                    {envioParaReenviar?.email_utilizado}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-semibold text-slate-500">Campanha: </span>
+                  <span className="font-medium">
+                    {envioParaReenviar?.expand?.campanha?.nome || 'Campanha'}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-semibold text-slate-500">Assunto: </span>
+                  <span className="font-medium italic">
+                    "{envioParaReenviar?.expand?.campanha?.assunto}"
+                  </span>
+                </div>
+                {envioParaReenviar?.mensagem_erro && (
+                  <div className="pt-1 text-[11px] text-red-600">
+                    <span className="font-semibold">Último erro registrado: </span>
+                    <span>{envioParaReenviar.mensagem_erro}</span>
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                O envio será processado individualmente e o status da linha será atualizado de
+                acordo com a resposta exata do servidor.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={!!reenviandoId} className="text-xs">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmReenviar()
+              }}
+              disabled={!!reenviandoId}
+              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+            >
+              Sim, Reenviar Agora
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* MODAL SHADCN DE CONFIRMAÇÃO DE REENVIO EM LOTE */}
+      <AlertDialog open={isLoteModalOpen} onOpenChange={setIsLoteModalOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-2">
+              <RotateCw className="h-5 w-5" />
+            </div>
+            <AlertDialogTitle className="text-base text-slate-900">
+              Reenviar Todos os Erros da Campanha?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-600 space-y-2 pt-1 text-left">
+              <span>
+                Esta ação reprocessará todos os envios que falharam para a campanha selecionada:
+              </span>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
+                <div>
+                  <span className="font-semibold text-slate-500">Campanha: </span>
+                  <span className="font-medium">
+                    {campanhas.find((c) => c.id === filterCampanha)?.nome || 'Campanha'}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-semibold text-slate-500">Quantidade com Erro: </span>
+                  <span className="font-bold text-red-600">
+                    {
+                      envios.filter((e) => e.campanha === filterCampanha && e.status === 'Erro')
+                        .length
+                    }{' '}
+                    destinatário(s)
+                  </span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Cada destinatário será contactado individualmente via servidor SMTP. O histórico
+                refletirá o resultado real de cada disparo.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={isReenviandoLote} className="text-xs">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmReenviarLote()
+              }}
+              disabled={isReenviandoLote}
+              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+            >
+              Sim, Reenviar Lote
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* MODAL DETALHE DA COMUNICAÇÃO */}
       {selectedEnvio && (
@@ -647,14 +911,19 @@ export const HistoricoScreen: React.FC = () => {
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                 {selectedEnvio.status === 'Erro' && canWrite ? (
                   <button
+                    type="button"
                     onClick={() => {
                       const e = selectedEnvio
-                      setSelectedEnvio(null)
-                      handleReenviar(e)
+                      setEnvioParaReenviar(e)
                     }}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
+                    disabled={reenviandoId === selectedEnvio.id}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
                   >
-                    <RotateCw className="h-3.5 w-3.5" />
+                    {reenviandoId === selectedEnvio.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RotateCw className="h-3.5 w-3.5" />
+                    )}
                     <span>Reenviar Mensagem</span>
                   </button>
                 ) : (
@@ -663,7 +932,7 @@ export const HistoricoScreen: React.FC = () => {
 
                 <button
                   onClick={() => setSelectedEnvio(null)}
-                  className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-semibold"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors"
                 >
                   Fechar
                 </button>

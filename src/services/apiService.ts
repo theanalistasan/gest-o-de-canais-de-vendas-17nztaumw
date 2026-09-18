@@ -234,17 +234,31 @@ export const comunicacoesService = {
 
   async triggerProcessarEnvios(
     campanhaId?: string,
-  ): Promise<{ success: boolean; totalProcessados: number; totalErros: number }> {
+    envioId?: string,
+  ): Promise<{
+    success: boolean
+    totalProcessados: number
+    totalErros: number
+    mode?: 'real' | 'simulado'
+    ultimoStatus?: string
+    ultimaMensagemErro?: string
+  }> {
     try {
       const res = await pb.send('/backend/v1/processar-envios', {
         method: 'POST',
-        body: { campanhaId },
+        body: { campanhaId, envioId },
       })
       return res
     } catch (err) {
       console.error('Falha ao acionar processamento imediato de envios:', err)
       return { success: false, totalProcessados: 0, totalErros: 0 }
     }
+  },
+
+  async getEnvioById(id: string): Promise<Envio> {
+    return pb.collection('envios').getOne<Envio>(id, {
+      expand: 'campanha,contato,revenda,campanha.usuario',
+    })
   },
 }
 

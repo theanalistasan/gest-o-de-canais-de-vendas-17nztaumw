@@ -11,15 +11,37 @@ routerAdd(
     } catch (_) {}
 
     const campanhaId = body.campanhaId || ''
+    const envioId = body.envioId || ''
 
-    let filter = "status = 'Enviando'"
-    if (campanhaId) {
-      filter += " && id = '" + campanhaId + "'"
+    let campanhas = []
+    if (envioId) {
+      try {
+        const envioAlvo = $app.findRecordById('envios', envioId)
+        const cId = envioAlvo.getString('campanha')
+        if (cId) {
+          const cRec = $app.findRecordById('campanhas', cId)
+          campanhas = [cRec]
+        }
+      } catch (errAlvo) {
+        return e.json(404, { success: false, error: 'Envio não encontrado: ' + errAlvo })
+      }
+    } else if (campanhaId) {
+      try {
+        const cRec = $app.findRecordById('campanhas', campanhaId)
+        campanhas = [cRec]
+      } catch (_) {
+        campanhas = $app.findRecordsByFilter('campanhas', 'id = {:campId}', 'created', 1, 0, {
+          campId: campanhaId,
+        })
+      }
+    } else {
+      campanhas = $app.findRecordsByFilter('campanhas', "status = 'Enviando'", 'created', 10, 0)
     }
 
-    const campanhas = $app.findRecordsByFilter('campanhas', filter, 'created', 10, 0)
     let totalProcessados = 0
     let totalErros = 0
+    let ultimoStatus = ''
+    let ultimaMensagemErro = ''
 
     // Verificar se existe SMTP real configurado no ambiente
     const smtpHost = $os.getenv('SMTP_HOST') || ''
@@ -36,14 +58,25 @@ routerAdd(
 
     for (let c = 0; c < campanhas.length; c++) {
       const camp = campanhas[c]
-      const enviosPendentes = $app.findRecordsByFilter(
-        'envios',
-        "campanha = {:campanhaId} && status = 'Pendente'",
-        'created',
-        200,
-        0,
-        { campanhaId: camp.id },
-      )
+      let enviosPendentes = []
+
+      if (envioId) {
+        try {
+          const rec = $app.findRecordById('envios', envioId)
+          if (rec.getString('status') === 'Pendente') {
+            enviosPendentes = [rec]
+          }
+        } catch (_) {}
+      } else {
+        enviosPendentes = $app.findRecordsByFilter(
+          'envios',
+          "campanha = {:campanhaId} && status = 'Pendente'",
+          'created',
+          200,
+          0,
+          { campanhaId: camp.id },
+        )
+      }
 
       const campAssunto = camp.getString('assunto') || 'Comunicado'
       const campCorpo = camp.getString('corpo') || ''
@@ -133,6 +166,8 @@ routerAdd(
             envio.set('data_envio', new Date().toISOString().replace('T', ' ').substring(0, 19))
             $app.save(envio)
             totalProcessados++
+            ultimoStatus = 'Enviado'
+            ultimaMensagemErro = ''
           } catch (sendErr) {
             envio.set('status', 'Erro')
             envio.set('erro', true)
@@ -141,6 +176,8 @@ routerAdd(
             envio.set('data_envio', new Date().toISOString().replace('T', ' ').substring(0, 19))
             $app.save(envio)
             totalErros++
+            ultimoStatus = 'Erro'
+            ultimaMensagemErro = 'Falha ao entregar SMTP: ' + sendErr
           }
         } else {
           // ENVIO SIMULADO COM REGISTRO AUDITÁVEL
@@ -154,6 +191,8 @@ routerAdd(
           envio.set('data_envio', new Date().toISOString().replace('T', ' ').substring(0, 19))
           $app.save(envio)
           totalProcessados++
+          ultimoStatus = 'Enviado'
+          ultimaMensagemErro = 'Simulado — nenhum e-mail enviado de fato (SMTP não configurado)'
         }
       }
 
@@ -177,6 +216,36 @@ routerAdd(
       totalProcessados: totalProcessados,
       totalErros: totalErros,
       campanhasAvaliadas: campanhas.length,
+      ultimoStatus: ultimoStatus,
+      ultimaMensagemErro: ultimaMensagemErro,
+    })
+  },
+  $apis.requireAuth(),
+)
+
+// Endpoint de diagnóstico da configuração de e-mail (usado pelo cabeçalho da tela de Comunicações)
+routerAdd(
+  'GET',
+  '/backend/v1/email-config',
+  (e) => {
+    const smtpHost = $os.getenv('SMTP_HOST') || ''
+    const smtpPort = $os.getenv('SMTP_PORT') || '587'
+    const smtpUser = $os.getenv('SMTP_USER') || $os.getenv('SMTP_USERNAME') || ''
+    const smtpPass = $os.getenv('SMTP_PASS') || $os.getenv('SMTP_PASSWORD') || ''
+    const defaultSender = $os.getenv('SMTP_FROM') || 'nao-responda@rolanddg.com.br'
+    const configured = !!(smtpHost && smtpHost.length > 2)
+
+    return e.json(200, {
+      mode: configured ? 'real' : 'simulado',
+      configured: configured,
+      host: smtpHost,
+      port: smtpPort,
+      user: smtpUser,
+      defaultSender: defaultSender,
+      hasPassword: !!smtpPass,
+      message: configured
+        ? 'SMTP Corporativo configurado (' + smtpHost + ':' + smtpPort + ')'
+        : 'Modo Simulado ativo: Nenhum e-mail real sai para a internet.',
     })
   },
   $apis.requireAuth(),
