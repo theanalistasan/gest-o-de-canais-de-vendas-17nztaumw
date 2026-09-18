@@ -260,6 +260,10 @@ export const comunicacoesService = {
       expand: 'campanha,contato,revenda,campanha.usuario',
     })
   },
+
+  async deleteEnvio(id: string): Promise<boolean> {
+    return pb.collection('envios').delete(id)
+  },
 }
 
 // ==================== AUDITORIA E USUÁRIOS ====================

@@ -13,6 +13,8 @@ import {
   Loader2,
   X,
   Search,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { comunicacoesService } from '@/services/apiService'
@@ -32,7 +34,7 @@ import type { Envio, Campanha } from '@/types'
 
 export const HistoricoScreen: React.FC = () => {
   const { toast } = useToast()
-  const { canWrite } = useAuth()
+  const { canWrite, isAdmin } = useAuth()
   const [, startTransition] = useTransition()
   const [searchParams] = useSearchParams()
 
@@ -57,6 +59,10 @@ export const HistoricoScreen: React.FC = () => {
   // Reenvio individual (modal de confirmação)
   const [envioParaReenviar, setEnvioParaReenviar] = useState<Envio | null>(null)
   const [reenviandoId, setReenviandoId] = useState<string | null>(null)
+
+  // Exclusão individual de falha (modal de confirmação)
+  const [envioParaExcluir, setEnvioParaExcluir] = useState<Envio | null>(null)
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
 
   // Reenvio em lote de erros da campanha filtrada
   const [isLoteModalOpen, setIsLoteModalOpen] = useState(false)
@@ -189,6 +195,41 @@ export const HistoricoScreen: React.FC = () => {
       await loadData()
     } finally {
       setReenviandoId(null)
+    }
+  }
+
+  // Executar exclusão de envio com falha (restrito a Admin)
+  const handleConfirmExcluir = async () => {
+    if (!envioParaExcluir || !isAdmin) return
+    const alvo = envioParaExcluir
+    setExcluindoId(alvo.id)
+    setEnvioParaExcluir(null)
+
+    try {
+      await comunicacoesService.deleteEnvio(alvo.id)
+
+      setEnvios((prev) => prev.filter((item) => item.id !== alvo.id))
+
+      if (selectedEnvio && selectedEnvio.id === alvo.id) {
+        setSelectedEnvio(null)
+      }
+
+      toast({
+        title: 'Registro de falha excluído com sucesso',
+        description: `O registro de falha para ${alvo.email_utilizado || 'o destinatário'} foi removido do Histórico e auditado.`,
+        variant: 'default',
+      })
+    } catch (err: unknown) {
+      console.error('Erro ao excluir envio com falha:', err)
+      const msg = err instanceof Error ? err.message : 'Falha ao excluir o registro de falha'
+      toast({
+        title: 'Erro na exclusão',
+        description: msg,
+        variant: 'destructive',
+      })
+      await loadData()
+    } finally {
+      setExcluindoId(null)
     }
   }
 
@@ -586,21 +627,48 @@ export const HistoricoScreen: React.FC = () => {
                     {/* Ações */}
                     <td className="py-3 px-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* Ação clara de reenvio */}
-                        {canWrite && env.status === 'Erro' && (
+                        {/* Ação de reenvio: disponível tanto para status 'Erro' quanto 'Enviado' */}
+                        {canWrite && (env.status === 'Erro' || env.status === 'Enviado') && (
                           <button
                             type="button"
                             onClick={() => setEnvioParaReenviar(env)}
-                            disabled={reenviandoId === env.id || isReenviandoLote}
-                            title="Reenviar mensagem para este destinatário"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300 transition-colors disabled:opacity-40"
+                            disabled={
+                              reenviandoId === env.id || isReenviandoLote || excluindoId === env.id
+                            }
+                            title={
+                              env.status === 'Enviado'
+                                ? 'Reenviar mensagem (já entregue)'
+                                : 'Reenviar mensagem para este destinatário'
+                            }
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-40 ${
+                              env.status === 'Enviado'
+                                ? 'bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 hover:border-sky-300'
+                                : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300'
+                            }`}
                           >
                             {reenviandoId === env.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin text-amber-600" />
+                              <Loader2 className="h-3 w-3 animate-spin text-current" />
                             ) : (
-                              <RotateCw className="h-3 w-3 text-amber-600" />
+                              <RotateCw className="h-3 w-3 text-current" />
                             )}
                             <span>Reenviar</span>
+                          </button>
+                        )}
+
+                        {/* Ação de lixeira: exclusiva para perfil Administrador e apenas para status 'Erro' */}
+                        {isAdmin && env.status === 'Erro' && (
+                          <button
+                            type="button"
+                            onClick={() => setEnvioParaExcluir(env)}
+                            disabled={excluindoId === env.id || reenviandoId === env.id}
+                            title="Excluir registro com falha do histórico"
+                            className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md border border-slate-200 hover:border-red-200 transition-colors disabled:opacity-40"
+                          >
+                            {excluindoId === env.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-red-600" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
                           </button>
                         )}
 
@@ -676,53 +744,95 @@ export const HistoricoScreen: React.FC = () => {
       >
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-2">
-              <RotateCw className="h-5 w-5" />
+            <div
+              className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${
+                envioParaReenviar?.status === 'Enviado'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-amber-100 text-amber-700'
+              }`}
+            >
+              {envioParaReenviar?.status === 'Enviado' ? (
+                <AlertTriangle className="h-5 w-5 text-amber-700" />
+              ) : (
+                <RotateCw className="h-5 w-5" />
+              )}
             </div>
             <AlertDialogTitle className="text-base text-slate-900">
-              Confirmar Reenvio de E-mail
+              {envioParaReenviar?.status === 'Enviado'
+                ? 'Atenção: Destinatário já recebeu esta mensagem'
+                : 'Confirmar Reenvio de E-mail'}
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-slate-600 space-y-2 pt-1 text-left">
-              <span>
-                Você está prestes a realizar uma <strong>nova tentativa real de disparo</strong> via
-                servidor SMTP para o seguinte destinatário:
-              </span>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
-                <div>
-                  <span className="font-semibold text-slate-500">Destinatário: </span>
-                  <span className="font-medium">
-                    {envioParaReenviar?.expand?.contato?.nome || 'Contato'}
-                  </span>
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-500">E-mail: </span>
-                  <span className="font-mono text-blue-700 font-medium">
-                    {envioParaReenviar?.email_utilizado}
-                  </span>
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-500">Campanha: </span>
-                  <span className="font-medium">
-                    {envioParaReenviar?.expand?.campanha?.nome || 'Campanha'}
-                  </span>
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-500">Assunto: </span>
-                  <span className="font-medium italic">
-                    "{envioParaReenviar?.expand?.campanha?.assunto}"
-                  </span>
-                </div>
-                {envioParaReenviar?.mensagem_erro && (
-                  <div className="pt-1 text-[11px] text-red-600">
-                    <span className="font-semibold">Último erro registrado: </span>
-                    <span>{envioParaReenviar.mensagem_erro}</span>
+            <AlertDialogDescription asChild>
+              <div className="text-xs text-slate-600 space-y-2.5 pt-1 text-left">
+                {envioParaReenviar?.status === 'Enviado' ? (
+                  <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-amber-900 space-y-1.5">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" />
+                      <span>Mensagem já entregue anteriormente</span>
+                    </div>
+                    <p className="leading-relaxed">
+                      Este destinatário <strong>JÁ RECEBEU</strong> esta comunicação com sucesso em{' '}
+                      <strong>
+                        {envioParaReenviar.data_envio
+                          ? new Date(envioParaReenviar.data_envio).toLocaleString('pt-BR')
+                          : new Date(envioParaReenviar.created).toLocaleString('pt-BR')}
+                      </strong>
+                      .
+                    </p>
+                    <p className="leading-relaxed text-[11px] text-amber-800">
+                      O reenvio criará uma <strong>nova tentativa real via servidor SMTP</strong> e
+                      o contato receberá a mensagem novamente em sua caixa de entrada.
+                    </p>
                   </div>
+                ) : (
+                  <span>
+                    Você está prestes a realizar uma <strong>nova tentativa real de disparo</strong>{' '}
+                    via servidor SMTP para o seguinte destinatário:
+                  </span>
                 )}
+
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
+                  <div>
+                    <span className="font-semibold text-slate-500">Destinatário: </span>
+                    <span className="font-medium">
+                      {envioParaReenviar?.expand?.contato?.nome || 'Contato'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">E-mail: </span>
+                    <span className="font-mono text-blue-700 font-medium">
+                      {envioParaReenviar?.email_utilizado}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Campanha: </span>
+                    <span className="font-medium">
+                      {envioParaReenviar?.expand?.campanha?.nome || 'Campanha'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Assunto: </span>
+                    <span className="font-medium italic">
+                      "{envioParaReenviar?.expand?.campanha?.assunto}"
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Status atual: </span>
+                    <span className="font-medium">{envioParaReenviar?.status}</span>
+                  </div>
+                  {envioParaReenviar?.status === 'Erro' && envioParaReenviar?.mensagem_erro && (
+                    <div className="pt-1 text-[11px] text-red-600">
+                      <span className="font-semibold">Diagnóstico do último erro: </span>
+                      <span>{envioParaReenviar.mensagem_erro}</span>
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-slate-500">
+                  O envio será processado individualmente e o status da linha será atualizado de
+                  acordo com a resposta exata do servidor.
+                </p>
               </div>
-              <p className="text-[11px] text-slate-500">
-                O envio será processado individualmente e o status da linha será atualizado de
-                acordo com a resposta exata do servidor.
-              </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="mt-2">
@@ -735,9 +845,87 @@ export const HistoricoScreen: React.FC = () => {
                 handleConfirmReenviar()
               }}
               disabled={!!reenviandoId}
-              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+              className={`text-white text-xs font-semibold ${
+                envioParaReenviar?.status === 'Enviado'
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
-              Sim, Reenviar Agora
+              {envioParaReenviar?.status === 'Enviado'
+                ? 'Confirmar Reenvio Adicional'
+                : 'Sim, Reenviar Agora'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* MODAL SHADCN DE CONFIRMAÇÃO DE EXCLUSÃO DE ITEM COM FALHA (LIXEIRA) */}
+      <AlertDialog
+        open={!!envioParaExcluir}
+        onOpenChange={(open) => !open && setEnvioParaExcluir(null)}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="w-10 h-10 rounded-full bg-red-100 text-red-700 flex items-center justify-center mb-2">
+              <Trash2 className="h-5 w-5" />
+            </div>
+            <AlertDialogTitle className="text-base text-slate-900">
+              Excluir Registro de Falha do Histórico?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-xs text-slate-600 space-y-2.5 pt-1 text-left">
+                <p className="text-red-700 font-medium">
+                  Atenção: Esta ação é irreversível. O registro desta tentativa falha será
+                  permanentemente removido da tabela de Histórico de Disparos.
+                </p>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
+                  <div>
+                    <span className="font-semibold text-slate-500">Destinatário: </span>
+                    <span className="font-medium">
+                      {envioParaExcluir?.expand?.contato?.nome || 'Contato'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">E-mail: </span>
+                    <span className="font-mono text-blue-700 font-medium">
+                      {envioParaExcluir?.email_utilizado}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Campanha: </span>
+                    <span className="font-medium">
+                      {envioParaExcluir?.expand?.campanha?.nome || 'Campanha'}
+                    </span>
+                  </div>
+                  {envioParaExcluir?.mensagem_erro && (
+                    <div className="pt-1 text-[11px] text-red-600">
+                      <span className="font-semibold">Erro registrado: </span>
+                      <span className="truncate block">{envioParaExcluir.mensagem_erro}</span>
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-slate-500">
+                  Uma entrada será automaticamente gravada no Log de Auditoria do sistema
+                  identificando o usuário administrador responsável pela remoção deste item.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={!!excluindoId} className="text-xs">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmExcluir()
+              }}
+              disabled={!!excluindoId}
+              className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+            >
+              {excluindoId ? 'Excluindo...' : 'Sim, Excluir Registro'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -909,26 +1097,56 @@ export const HistoricoScreen: React.FC = () => {
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                {selectedEnvio.status === 'Erro' && canWrite ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const e = selectedEnvio
-                      setEnvioParaReenviar(e)
-                    }}
-                    disabled={reenviandoId === selectedEnvio.id}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                  >
-                    {reenviandoId === selectedEnvio.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RotateCw className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-2">
+                  {/* Reenvio no modal de detalhes: disponível tanto para Erro quanto para Enviado */}
+                  {canWrite &&
+                    (selectedEnvio.status === 'Erro' || selectedEnvio.status === 'Enviado') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const e = selectedEnvio
+                          setEnvioParaReenviar(e)
+                        }}
+                        disabled={reenviandoId === selectedEnvio.id}
+                        className={`px-4 py-2 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
+                          selectedEnvio.status === 'Enviado'
+                            ? 'bg-sky-600 hover:bg-sky-700'
+                            : 'bg-amber-600 hover:bg-amber-700'
+                        }`}
+                      >
+                        {reenviandoId === selectedEnvio.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RotateCw className="h-3.5 w-3.5" />
+                        )}
+                        <span>
+                          {selectedEnvio.status === 'Enviado'
+                            ? 'Reenviar Novamente'
+                            : 'Reenviar Mensagem'}
+                        </span>
+                      </button>
                     )}
-                    <span>Reenviar Mensagem</span>
-                  </button>
-                ) : (
-                  <div />
-                )}
+
+                  {/* Lixeira no modal de detalhes: exclusiva para admin e apenas para Erro */}
+                  {isAdmin && selectedEnvio.status === 'Erro' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const e = selectedEnvio
+                        setEnvioParaExcluir(e)
+                      }}
+                      disabled={excluindoId === selectedEnvio.id}
+                      className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      {excluindoId === selectedEnvio.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      <span>Excluir Falha</span>
+                    </button>
+                  )}
+                </div>
 
                 <button
                   onClick={() => setSelectedEnvio(null)}
