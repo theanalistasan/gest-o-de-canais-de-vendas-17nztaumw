@@ -66,10 +66,13 @@ export const LoginScreen: React.FC = () => {
           <form className="space-y-5" onSubmit={handleSubmit}>
             {errorMsg && (
               <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
-                {errorMsg}
+                <p className="font-medium">{errorMsg}</p>
+                <p className="text-xs text-red-600/80 mt-1">
+                  Verifique se o e-mail está escrito corretamente e se a senha respeita
+                  maiúsculas/minúsculas.
+                </p>
               </div>
             )}
-
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
                 E-mail Corporativo
