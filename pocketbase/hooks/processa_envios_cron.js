@@ -7,25 +7,33 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
     const smtpPort = parseInt($os.getenv('SMTP_PORT') || '587', 10)
     const smtpUser = $os.getenv('SMTP_USER') || $os.getenv('SMTP_USERNAME') || ''
     const smtpPass = $os.getenv('SMTP_PASS') || $os.getenv('SMTP_PASSWORD') || ''
+    const smtpFromEnv = $os.getenv('SMTP_FROM') || 'nao-responda@rolanddg.com.br'
     const hasSmtpConfig = !!(smtpHost && smtpHost.length > 2)
+
+    // Porta 465 = TLS implícito desde o primeiro byte (direct SSL/TLS).
+    // Qualquer outra porta (587 em particular) = Plaintext + STARTTLS.
+    // No MailYak/PocketBase, settings.smtp.tls = false conecta em texto puro e emite STARTTLS.
+    const isImplicitTLS = smtpPort === 465
 
     for (let c = 0; c < campanhas.length; c++) {
       const camp = campanhas[c]
       const enviosPendentes = $app.findRecordsByFilter(
         'envios',
-        "campanha = '" + camp.id + "' && status = 'Pendente'",
+        "campanha = {:campanhaId} && status = 'Pendente'",
         'created',
         50,
         0,
+        { campanhaId: camp.id },
       )
 
       if (enviosPendentes.length === 0) {
         const restantes = $app.findRecordsByFilter(
           'envios',
-          "campanha = '" + camp.id + "' && status = 'Pendente'",
+          "campanha = {:campanhaId} && status = 'Pendente'",
           'created',
           1,
           0,
+          { campanhaId: camp.id },
         )
         if (restantes.length === 0) {
           camp.set('status', 'Concluida')
@@ -36,7 +44,9 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
 
       const campAssunto = camp.getString('assunto') || 'Comunicado'
       const campCorpo = camp.getString('corpo') || ''
-      const campRemetente = camp.getString('remetente') || 'nao-responda@rolanddg.com.br'
+      const senderAddress =
+        smtpFromEnv || camp.getString('remetente') || 'nao-responda@rolanddg.com.br'
+      const replyToAddress = camp.getString('remetente') || senderAddress
 
       for (let i = 0; i < enviosPendentes.length; i++) {
         const envio = enviosPendentes[i]
@@ -83,19 +93,27 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
             settings.smtp.port = smtpPort
             settings.smtp.username = smtpUser
             settings.smtp.password = smtpPass
-            settings.smtp.tls = true
-            settings.meta.senderAddress = campRemetente
+            // Se porta 465 -> TLS implícito (true).
+            // Se porta 587 (ou outra) -> Plaintext inicial + STARTTLS obrigatório (false).
+            settings.smtp.tls = isImplicitTLS
+            settings.meta.senderAddress = senderAddress
             settings.meta.senderName = 'Roland DG Brasil'
 
             const mailClient = $app.newMailClient()
+            const msgHeaders = {}
+            if (replyToAddress && replyToAddress !== senderAddress) {
+              msgHeaders['Reply-To'] = replyToAddress
+            }
+
             const msg = new MailerMessage({
               from: {
-                address: campRemetente,
+                address: senderAddress,
                 name: 'Roland DG Brasil',
               },
               to: [{ address: email }],
               subject: campAssunto,
               html: corpoFinal.replace(/\n/g, '<br/>'),
+              headers: msgHeaders,
             })
 
             mailClient.send(msg)
@@ -129,10 +147,11 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
 
       const restantesApos = $app.findRecordsByFilter(
         'envios',
-        "campanha = '" + camp.id + "' && status = 'Pendente'",
+        "campanha = {:campanhaId} && status = 'Pendente'",
         'created',
         1,
         0,
+        { campanhaId: camp.id },
       )
       if (restantesApos.length === 0) {
         camp.set('status', 'Concluida')
