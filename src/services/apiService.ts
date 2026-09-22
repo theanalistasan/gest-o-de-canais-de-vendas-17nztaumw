@@ -328,6 +328,7 @@ export const adminService = {
     host: string
     port: string
     user: string
+    authMethod?: string
     defaultSender: string
     hasPassword: boolean
     message: string

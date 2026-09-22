@@ -134,6 +134,9 @@ routerAdd(
             settings.smtp.port = smtpPort
             settings.smtp.username = smtpUser
             settings.smtp.password = smtpPass
+            // Autenticação SMTP: Microsoft 365 (smtp.office365.com) não aceita AUTH PLAIN (erro 5.7.4),
+            // aceitando apenas AUTH LOGIN ou XOAUTH2. Configuramos explicitamente 'LOGIN' em settings e no mailClient.
+            settings.smtp.authMethod = 'LOGIN'
             // Se porta 465 -> TLS implícito (true).
             // Se porta 587 (ou outra) -> Plaintext inicial + STARTTLS obrigatório (false).
             settings.smtp.tls = isImplicitTLS
@@ -141,6 +144,7 @@ routerAdd(
             settings.meta.senderName = 'Roland DG Brasil'
 
             const mailClient = $app.newMailClient()
+            mailClient.authMethod = 'LOGIN'
             const msgHeaders = {}
             if (replyToAddress && replyToAddress !== senderAddress) {
               msgHeaders['Reply-To'] = replyToAddress
@@ -241,10 +245,11 @@ routerAdd(
       host: smtpHost,
       port: smtpPort,
       user: smtpUser,
+      authMethod: 'LOGIN',
       defaultSender: defaultSender,
       hasPassword: !!smtpPass,
       message: configured
-        ? 'SMTP Corporativo configurado (' + smtpHost + ':' + smtpPort + ')'
+        ? 'SMTP Corporativo configurado (' + smtpHost + ':' + smtpPort + ' [AUTH LOGIN])'
         : 'Modo Simulado ativo: Nenhum e-mail real sai para a internet.',
     })
   },
