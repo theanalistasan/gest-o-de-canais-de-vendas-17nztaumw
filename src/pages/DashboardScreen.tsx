@@ -22,6 +22,7 @@ import {
   PieChart,
   Pie,
   Cell,
+  Legend,
 } from 'recharts'
 import { AnimatedCounter } from '@/components/AnimatedCounter'
 import { revendasService, contatosService, auxiliaresService } from '@/services/apiService'
@@ -158,15 +159,35 @@ export const DashboardScreen: React.FC = () => {
       .slice(0, 10)
   }, [filteredRevendas])
 
+  // Mapa de auxílio para garantir nomes corretos mesmo se expand falhar
+  const segmentoMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const s of segmentos) {
+      map.set(s.id, s.nome)
+    }
+    return map
+  }, [segmentos])
+
+  const canalMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const c of canais) {
+      map.set(c.id, c.nome)
+    }
+    return map
+  }, [canais])
+
   // Gráfico 2: Revendas por Segmento (Donut)
   const dataPorSegmento = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const r of filteredRevendas) {
-      const seg = r.expand?.segmento?.nome || 'Não definido'
+      const seg =
+        r.expand?.segmento?.nome ||
+        (r.segmento ? segmentoMap.get(r.segmento) : null) ||
+        'Não definido'
       counts[seg] = (counts[seg] || 0) + 1
     }
     return Object.entries(counts).map(([name, value]) => ({ name, value }))
-  }, [filteredRevendas])
+  }, [filteredRevendas, segmentoMap])
 
   // Gráfico 3: Revendas por Inside Sales (Barras verticais)
   const dataPorInside = useMemo(() => {
@@ -184,11 +205,14 @@ export const DashboardScreen: React.FC = () => {
   const dataPorCanal = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const r of filteredRevendas) {
-      const canal = r.expand?.canal_faturamento?.nome || 'Não definido'
+      const canal =
+        r.expand?.canal_faturamento?.nome ||
+        (r.canal_faturamento ? canalMap.get(r.canal_faturamento) : null) ||
+        'Não definido'
       counts[canal] = (counts[canal] || 0) + 1
     }
     return Object.entries(counts).map(([name, value]) => ({ name, value }))
-  }, [filteredRevendas])
+  }, [filteredRevendas, canalMap])
 
   // Últimas 5 Revendas Atualizadas
   const ultimasAtualizadas = useMemo(() => {
@@ -504,7 +528,7 @@ export const DashboardScreen: React.FC = () => {
             <span>Revendas por Segmento</span>
             <span className="text-xs font-normal text-slate-400">Divisão mercadológica</span>
           </h3>
-          <div className="h-64 flex items-center">
+          <div className="h-72 flex items-center">
             {dataPorSegmento.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -513,9 +537,9 @@ export const DashboardScreen: React.FC = () => {
                     dataKey="value"
                     nameKey="name"
                     cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={80}
+                    cy="45%"
+                    innerRadius={46}
+                    outerRadius={74}
                     paddingAngle={3}
                   >
                     {dataPorSegmento.map((_, index) => (
@@ -529,7 +553,26 @@ export const DashboardScreen: React.FC = () => {
                       borderRadius: 8,
                       color: '#F8FAFC',
                     }}
-                    formatter={(v: unknown) => [String(v) + ' revendas', 'Total']}
+                    formatter={(v: unknown, name: unknown) => [
+                      `${String(v)} revendas`,
+                      String(name),
+                    ]}
+                  />
+                  <Legend
+                    verticalAlign="bottom"
+                    align="center"
+                    iconType="circle"
+                    iconSize={8}
+                    wrapperStyle={{ paddingTop: 8, fontSize: '11px', color: '#475569' }}
+                    formatter={(value: string, entry: any) => {
+                      const payload = entry?.payload as { value?: number } | undefined
+                      const count = payload?.value ?? 0
+                      return (
+                        <span className="text-slate-700 font-medium">
+                          {value} <span className="text-slate-400 font-normal">({count})</span>
+                        </span>
+                      )
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -588,7 +631,7 @@ export const DashboardScreen: React.FC = () => {
             <span>Revendas por Canal de Faturamento</span>
             <span className="text-xs font-normal text-slate-400">Modalidade de faturamento</span>
           </h3>
-          <div className="h-64 flex items-center">
+          <div className="h-72 flex items-center">
             {dataPorCanal.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -597,9 +640,9 @@ export const DashboardScreen: React.FC = () => {
                     dataKey="value"
                     nameKey="name"
                     cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={80}
+                    cy="45%"
+                    innerRadius={46}
+                    outerRadius={74}
                     paddingAngle={3}
                   >
                     {dataPorCanal.map((_, index) => (
@@ -616,7 +659,26 @@ export const DashboardScreen: React.FC = () => {
                       borderRadius: 8,
                       color: '#F8FAFC',
                     }}
-                    formatter={(v: unknown) => [String(v) + ' revendas', 'Total']}
+                    formatter={(v: unknown, name: unknown) => [
+                      `${String(v)} revendas`,
+                      String(name),
+                    ]}
+                  />
+                  <Legend
+                    verticalAlign="bottom"
+                    align="center"
+                    iconType="circle"
+                    iconSize={8}
+                    wrapperStyle={{ paddingTop: 8, fontSize: '11px', color: '#475569' }}
+                    formatter={(value: string, entry: any) => {
+                      const payload = entry?.payload as { value?: number } | undefined
+                      const count = payload?.value ?? 0
+                      return (
+                        <span className="text-slate-700 font-medium">
+                          {value} <span className="text-slate-400 font-normal">({count})</span>
+                        </span>
+                      )
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>
