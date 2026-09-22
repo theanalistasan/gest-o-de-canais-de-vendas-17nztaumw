@@ -55,9 +55,13 @@ export const ContatosScreen: React.FC = () => {
   const [sortField, setSortField] = useState<'nome' | 'email' | 'revenda' | 'updated'>('nome')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
-  // Paginação
+  // Paginação no modo Lista Plana
   const [currentPage, setCurrentPage] = useState(1)
   const [perPage, setPerPage] = useState(25)
+
+  // Paginação no modo Agrupado por Revenda
+  const [groupPage, setGroupPage] = useState(1)
+  const [groupsPerPage, setGroupsPerPage] = useState<'all' | number>('all')
 
   // Modal Novo/Editar Contato
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -241,17 +245,18 @@ export const ContatosScreen: React.FC = () => {
     isSemRevenda?: boolean
   }
 
-  // Agrupa os contatos da página atual (ou da lista filtrada se desabilitar agrupamento)
+  // Lista paginada para o modo Lista Plana
   const paginatedContatos = useMemo(() => {
     const start = (currentPage - 1) * perPage
     return sortedContatos.slice(start, start + perPage)
   }, [sortedContatos, currentPage, perPage])
 
-  const groupedPaginatedContatos = useMemo(() => {
+  // Todos os grupos de revendas formados a partir de TODOS os contatos filtrados e ordenados
+  const allRevendaGroups = useMemo(() => {
     const groups: RevendaGroup[] = []
     const groupMap = new Map<string, RevendaGroup>()
 
-    for (const contato of paginatedContatos) {
+    for (const contato of sortedContatos) {
       const revId = contato.revenda || 'sem_revenda'
       let grp = groupMap.get(revId)
       if (!grp) {
@@ -280,10 +285,21 @@ export const ContatosScreen: React.FC = () => {
     }
 
     return groups
-  }, [paginatedContatos, revendaMap, segmentos])
+  }, [sortedContatos, revendaMap, segmentos])
 
-  // Total de revendas distintas na página atual e no total filtrado
-  const totalRevendasNaPagina = groupedPaginatedContatos.length
+  // Grupos exibidos na página atual no modo agrupado
+  const displayedRevendaGroups = useMemo(() => {
+    if (groupsPerPage === 'all') {
+      return allRevendaGroups
+    }
+    const start = (groupPage - 1) * groupsPerPage
+    return allRevendaGroups.slice(start, start + groupsPerPage)
+  }, [allRevendaGroups, groupPage, groupsPerPage])
+
+  // Total de contatos contidos nos grupos atualmente visíveis na tela
+  const totalContatosVisiveisNoAgrupado = useMemo(() => {
+    return displayedRevendaGroups.reduce((acc, g) => acc + g.contatos.length, 0)
+  }, [displayedRevendaGroups])
 
   const handleToggleCollapse = (revendaId: string) => {
     setCollapsedRevendas((prev) => ({
@@ -297,19 +313,28 @@ export const ContatosScreen: React.FC = () => {
   }
 
   const handleCollapseAll = () => {
+    // Ao colapsar todas, muda a paginação para exibir TODAS as revendas em uma única página,
+    // conforme o pedido explícito do usuário, e fecha todos os grupos.
+    setGroupsPerPage('all')
+    setGroupPage(1)
+
     const newState: Record<string, boolean> = {}
-    for (const g of groupedPaginatedContatos) {
+    for (const g of allRevendaGroups) {
       newState[g.revendaId] = true
     }
     setCollapsedRevendas(newState)
   }
 
   const allCollapsed =
-    groupedPaginatedContatos.length > 0 &&
-    groupedPaginatedContatos.every((g) => !!collapsedRevendas[g.revendaId])
+    displayedRevendaGroups.length > 0 &&
+    displayedRevendaGroups.every((g) => !!collapsedRevendas[g.revendaId])
 
-  // Paginação
+  // Paginação da lista plana
   const totalPages = Math.ceil(sortedContatos.length / perPage) || 1
+
+  // Paginação dos grupos
+  const totalGroupPages =
+    groupsPerPage === 'all' ? 1 : Math.ceil(allRevendaGroups.length / groupsPerPage) || 1
 
   const handleSort = (field: 'nome' | 'email' | 'revenda' | 'updated') => {
     if (sortField === field) {
@@ -477,6 +502,7 @@ export const ContatosScreen: React.FC = () => {
       setFilterPrincipal('all')
       setFilterComunicacoes('all')
       setCurrentPage(1)
+      setGroupPage(1)
     })
   }
 
@@ -541,6 +567,7 @@ export const ContatosScreen: React.FC = () => {
             onClick={() => {
               setFilterSegmento('all')
               setCurrentPage(1)
+              setGroupPage(1)
             }}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
               filterSegmento === 'all'
@@ -569,6 +596,7 @@ export const ContatosScreen: React.FC = () => {
                 onClick={() => {
                   setFilterSegmento(isSelected ? 'all' : seg.id)
                   setCurrentPage(1)
+                  setGroupPage(1)
                 }}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   isSelected
@@ -596,6 +624,7 @@ export const ContatosScreen: React.FC = () => {
               onClick={() => {
                 setFilterSegmento(filterSegmento === 'sem_segmento' ? 'all' : 'sem_segmento')
                 setCurrentPage(1)
+                setGroupPage(1)
               }}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 filterSegmento === 'sem_segmento'
@@ -648,6 +677,7 @@ export const ContatosScreen: React.FC = () => {
                 onChange={(e) => {
                   setSearchGeral(e.target.value)
                   setCurrentPage(1)
+                  setGroupPage(1)
                 }}
                 placeholder="Nome, e-mail, tel, revenda ou cód. revenda..."
                 className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
@@ -663,6 +693,7 @@ export const ContatosScreen: React.FC = () => {
               onChange={(e) => {
                 setFilterSegmento(e.target.value)
                 setCurrentPage(1)
+                setGroupPage(1)
               }}
               className="w-full py-1.5 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
             >
@@ -684,6 +715,7 @@ export const ContatosScreen: React.FC = () => {
               onChange={(e) => {
                 setFilterRevenda(e.target.value)
                 setCurrentPage(1)
+                setGroupPage(1)
               }}
               className="w-full py-1.5 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
             >
@@ -705,6 +737,7 @@ export const ContatosScreen: React.FC = () => {
               onChange={(e) => {
                 setFilterCargo(e.target.value)
                 setCurrentPage(1)
+                setGroupPage(1)
               }}
               className="w-full py-1.5 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
             >
@@ -727,6 +760,7 @@ export const ContatosScreen: React.FC = () => {
               onChange={(e) => {
                 setFilterPrincipal(e.target.value)
                 setCurrentPage(1)
+                setGroupPage(1)
               }}
               className="w-full py-1.5 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
             >
@@ -757,20 +791,33 @@ export const ContatosScreen: React.FC = () => {
           <span className="text-slate-500">
             {groupByRevenda ? (
               <>
-                <strong className="text-slate-800">{totalRevendasNaPagina}</strong>{' '}
-                {totalRevendasNaPagina === 1 ? 'revenda nesta página' : 'revendas nesta página'} (
-                <strong className="text-slate-800">{paginatedContatos.length}</strong> contatos)
+                {groupsPerPage === 'all' ? (
+                  <>
+                    Exibindo todas as{' '}
+                    <strong className="text-slate-800">{allRevendaGroups.length}</strong>{' '}
+                    {allRevendaGroups.length === 1 ? 'revenda' : 'revendas'} nesta página (
+                    <strong className="text-slate-800">{sortedContatos.length}</strong> contatos no
+                    total)
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-slate-800">{displayedRevendaGroups.length}</strong> de{' '}
+                    <strong className="text-slate-800">{allRevendaGroups.length}</strong> revendas
+                    nesta página ({totalContatosVisiveisNoAgrupado} contatos)
+                  </>
+                )}
               </>
             ) : (
               <>
                 Modo lista plana:{' '}
-                <strong className="text-slate-800">{paginatedContatos.length}</strong> contatos
+                <strong className="text-slate-800">{sortedContatos.length}</strong> contatos
+                filtrados
               </>
             )}
           </span>
         </div>
 
-        {groupByRevenda && groupedPaginatedContatos.length > 0 && (
+        {groupByRevenda && allRevendaGroups.length > 0 && (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -785,7 +832,7 @@ export const ContatosScreen: React.FC = () => {
               ) : (
                 <>
                   <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
-                  <span>Colapsar todas</span>
+                  <span>Colapsar todas (ver tudo)</span>
                 </>
               )}
             </button>
@@ -803,6 +850,7 @@ export const ContatosScreen: React.FC = () => {
               onClick={handleCollapseAll}
               disabled={allCollapsed}
               className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition-colors shadow-xs disabled:opacity-40"
+              title="Colapsa todas e exibe a lista completa de revendas em uma única página"
             >
               <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
               <span>Colapsar todas</span>
@@ -884,7 +932,7 @@ export const ContatosScreen: React.FC = () => {
                     <span>Carregando base de contatos...</span>
                   </td>
                 </tr>
-              ) : paginatedContatos.length === 0 ? (
+              ) : sortedContatos.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-slate-400">
                     <Users className="h-8 w-8 mx-auto text-slate-300 mb-2" />
@@ -1036,7 +1084,7 @@ export const ContatosScreen: React.FC = () => {
                 })
               ) : (
                 // MODO AGRUPADO COLAPSÁVEL POR REVENDA
-                groupedPaginatedContatos.map((group) => {
+                displayedRevendaGroups.map((group) => {
                   const isCollapsed = !!collapsedRevendas[group.revendaId]
                   return (
                     <React.Fragment key={`group-${group.revendaId}`}>
@@ -1248,47 +1296,121 @@ export const ContatosScreen: React.FC = () => {
         {/* PAGINAÇÃO */}
         <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <div className="flex items-center gap-2">
-            <span>
-              Exibindo {sortedContatos.length === 0 ? 0 : (currentPage - 1) * perPage + 1} até{' '}
-              {Math.min(currentPage * perPage, sortedContatos.length)} de {sortedContatos.length}{' '}
-              contatos
-            </span>
-            <span className="text-slate-300">|</span>
-            <label className="flex items-center gap-1">
-              <span>Linhas por página:</span>
-              <select
-                value={perPage}
-                onChange={(e) => {
-                  setPerPage(Number(e.target.value))
-                  setCurrentPage(1)
-                }}
-                className="py-1 px-2 border border-slate-200 rounded bg-white text-slate-700"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-              </select>
-            </label>
+            {groupByRevenda ? (
+              // Paginação por Revenda no modo agrupado
+              <>
+                <span>
+                  {allRevendaGroups.length === 0 ? (
+                    'Nenhuma revenda encontrada'
+                  ) : groupsPerPage === 'all' ? (
+                    <>
+                      Exibindo todas as <strong>{allRevendaGroups.length}</strong> revendas (
+                      <strong>{sortedContatos.length}</strong> contatos no total)
+                    </>
+                  ) : (
+                    <>
+                      Exibindo revendas {(groupPage - 1) * groupsPerPage + 1}–
+                      {Math.min(groupPage * groupsPerPage, allRevendaGroups.length)} de{' '}
+                      {allRevendaGroups.length} ({totalContatosVisiveisNoAgrupado} contatos visíveis
+                      de {sortedContatos.length} no total)
+                    </>
+                  )}
+                </span>
+                <span className="text-slate-300">|</span>
+                <label className="flex items-center gap-1">
+                  <span>Revendas por página:</span>
+                  <select
+                    value={groupsPerPage === 'all' ? 'all' : String(groupsPerPage)}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setGroupsPerPage(val === 'all' ? 'all' : Number(val))
+                      setGroupPage(1)
+                    }}
+                    className="py-1 px-2 border border-slate-200 rounded bg-white text-slate-700 font-medium"
+                  >
+                    <option value="all">Todas em 1 página</option>
+                    <option value="10">10 revendas</option>
+                    <option value="20">20 revendas</option>
+                    <option value="50">50 revendas</option>
+                  </select>
+                </label>
+              </>
+            ) : (
+              // Paginação por Contato no modo Lista Plana (inalterado)
+              <>
+                <span>
+                  Exibindo {sortedContatos.length === 0 ? 0 : (currentPage - 1) * perPage + 1} até{' '}
+                  {Math.min(currentPage * perPage, sortedContatos.length)} de{' '}
+                  {sortedContatos.length} contatos
+                </span>
+                <span className="text-slate-300">|</span>
+                <label className="flex items-center gap-1">
+                  <span>Linhas por página:</span>
+                  <select
+                    value={perPage}
+                    onChange={(e) => {
+                      setPerPage(Number(e.target.value))
+                      setCurrentPage(1)
+                    }}
+                    className="py-1 px-2 border border-slate-200 rounded bg-white text-slate-700"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                  </select>
+                </label>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
-            >
-              Anterior
-            </button>
-            <span className="px-2 font-medium text-slate-700">
-              Página {currentPage} de {totalPages}
-            </span>
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
-            >
-              Próxima
-            </button>
+            {groupByRevenda ? (
+              groupsPerPage === 'all' ? (
+                <span className="px-2 font-medium text-slate-700 bg-slate-100 py-1 rounded">
+                  Página única (todas as {allRevendaGroups.length} revendas)
+                </span>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setGroupPage((p) => Math.max(1, p - 1))}
+                    disabled={groupPage === 1}
+                    className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+                  <span className="px-2 font-medium text-slate-700">
+                    Página {groupPage} de {totalGroupPages}
+                  </span>
+                  <button
+                    onClick={() => setGroupPage((p) => Math.min(totalGroupPages, p + 1))}
+                    disabled={groupPage === totalGroupPages}
+                    className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Próxima
+                  </button>
+                </>
+              )
+            ) : (
+              <>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Anterior
+                </button>
+                <span className="px-2 font-medium text-slate-700">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Próxima
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
