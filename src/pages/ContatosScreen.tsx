@@ -20,11 +20,15 @@ import {
   Loader2,
   X,
   ExternalLink,
+  ChevronDown,
+  ChevronRight,
+  Building2,
+  Layers,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { contatosService, revendasService, auxiliaresService } from '@/services/apiService'
 import { exportToCSV } from '@/lib/exportCsv'
-import type { Contato, Revenda, Cargo } from '@/types'
+import type { Contato, Revenda, Cargo, Segmento, Estado } from '@/types'
 
 export const ContatosScreen: React.FC = () => {
   const { canWrite } = useAuth()
@@ -34,10 +38,13 @@ export const ContatosScreen: React.FC = () => {
   const [contatos, setContatos] = useState<Contato[]>([])
   const [revendas, setRevendas] = useState<Revenda[]>([])
   const [cargos, setCargos] = useState<Cargo[]>([])
+  const [segmentos, setSegmentos] = useState<Segmento[]>([])
+  const [estados, setEstados] = useState<Estado[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   // Filtros
   const [searchGeral, setSearchGeral] = useState(searchParams.get('search') || '')
+  const [filterSegmento, setFilterSegmento] = useState('all')
   const [filterRevenda, setFilterRevenda] = useState('all')
   const [filterCargo, setFilterCargo] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
@@ -72,18 +79,26 @@ export const ContatosScreen: React.FC = () => {
     observacoes: '',
   })
 
+  // Agrupamento por Revenda (Colapsável)
+  const [groupByRevenda, setGroupByRevenda] = useState(true)
+  const [collapsedRevendas, setCollapsedRevendas] = useState<Record<string, boolean>>({})
+
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [cList, rList, cgList] = await Promise.all([
+      const [cList, rList, cgList, sList, eList] = await Promise.all([
         contatosService.getAll(),
         revendasService.getAll(),
         auxiliaresService.getCargos(),
+        auxiliaresService.getSegmentos(),
+        auxiliaresService.getEstados(),
       ])
 
       setContatos(cList)
       setRevendas(rList)
       setCargos(cgList)
+      setSegmentos(sList)
+      setEstados(eList)
     } catch (err) {
       console.error('Erro ao carregar contatos:', err)
     } finally {
@@ -95,21 +110,76 @@ export const ContatosScreen: React.FC = () => {
     loadData()
   }, [])
 
+  // Mapa de revendas indexado por id (com acesso rápido ao segmento e outros campos)
+  const revendaMap = useMemo(() => {
+    const map = new Map<string, Revenda>()
+    for (const r of revendas) {
+      map.set(r.id, r)
+    }
+    return map
+  }, [revendas])
+
+  // Contagem de REVENDAS DISTINTAS por segmento (obedecendo ao pedido explícito do usuário)
+  // Cada revenda é computada uma única vez pelo seu ID e classificada pelo segmento
+  const statsRevendasPorSegmento = useMemo(() => {
+    // Mapa auxiliar: segmentoId ou "sem_segmento" => Set de IDs de revendas
+    const mapSeg = new Map<string, Set<string>>()
+    for (const s of segmentos) {
+      mapSeg.set(s.id, new Set<string>())
+    }
+    const semSegmentoSet = new Set<string>()
+
+    for (const r of revendas) {
+      if (r.segmento && mapSeg.has(r.segmento)) {
+        mapSeg.get(r.segmento)!.add(r.id)
+      } else {
+        semSegmentoSet.add(r.id)
+      }
+    }
+
+    const items = segmentos.map((s) => ({
+      id: s.id,
+      nome: s.nome,
+      totalRevendas: mapSeg.get(s.id)?.size || 0,
+    }))
+
+    return {
+      items,
+      totalGeralRevendas: revendas.length,
+      semSegmento: semSegmentoSet.size,
+    }
+  }, [segmentos, revendas])
+
   // Filtragem
   const filteredContatos = useMemo(() => {
     const q = searchGeral.toLowerCase().trim()
     return contatos.filter((c) => {
+      const rev = c.revenda ? revendaMap.get(c.revenda) : c.expand?.revenda
+
       if (q) {
         const matchesNome = c.nome.toLowerCase().includes(q)
         const matchesEmail =
           c.email?.toLowerCase().includes(q) || c.email_secundario?.toLowerCase().includes(q)
         const matchesTel =
           c.telefone?.includes(q) || c.celular?.includes(q) || c.whatsapp?.includes(q)
-        const matchesRev = c.expand?.revenda?.nome?.toLowerCase().includes(q) || false
-        const matchesRevCodigo = c.expand?.revenda?.codigo?.toLowerCase().includes(q) || false
+        const matchesRev = rev?.nome?.toLowerCase().includes(q) || false
+        const matchesRevCodigo = rev?.codigo?.toLowerCase().includes(q) || false
         if (!matchesNome && !matchesEmail && !matchesTel && !matchesRev && !matchesRevCodigo)
           return false
       }
+
+      // Filtro por Segmento (compara o segmento da revenda associada ao contato)
+      if (filterSegmento !== 'all') {
+        const revSeg =
+          rev?.segmento ||
+          (rev as unknown as { expand?: { segmento?: { id?: string } } })?.expand?.segmento?.id
+        if (filterSegmento === 'sem_segmento') {
+          if (revSeg) return false
+        } else if (revSeg !== filterSegmento) {
+          return false
+        }
+      }
+
       if (filterRevenda !== 'all' && c.revenda !== filterRevenda) return false
       if (filterCargo !== 'all' && c.cargo !== filterCargo) return false
       if (filterStatus !== 'all' && c.status_contato !== filterStatus) return false
@@ -122,14 +192,16 @@ export const ContatosScreen: React.FC = () => {
   }, [
     contatos,
     searchGeral,
+    filterSegmento,
     filterRevenda,
     filterCargo,
     filterStatus,
     filterPrincipal,
     filterComunicacoes,
+    revendaMap,
   ])
 
-  // Ordenação
+  // Ordenação dos contatos
   const sortedContatos = useMemo(() => {
     return [...filteredContatos].sort((a, b) => {
       let valA = ''
@@ -142,8 +214,10 @@ export const ContatosScreen: React.FC = () => {
         valA = a.email || ''
         valB = b.email || ''
       } else if (sortField === 'revenda') {
-        valA = a.expand?.revenda?.nome || ''
-        valB = b.expand?.revenda?.nome || ''
+        const revA = a.revenda ? revendaMap.get(a.revenda) : a.expand?.revenda
+        const revB = b.revenda ? revendaMap.get(b.revenda) : b.expand?.revenda
+        valA = revA?.nome || ''
+        valB = revB?.nome || ''
       } else if (sortField === 'updated') {
         valA = a.updated || a.created
         valB = b.updated || b.created
@@ -153,14 +227,89 @@ export const ContatosScreen: React.FC = () => {
       if (valA > valB) return sortDir === 'asc' ? 1 : -1
       return 0
     })
-  }, [filteredContatos, sortField, sortDir])
+  }, [filteredContatos, sortField, sortDir, revendaMap])
 
-  // Paginação
-  const totalPages = Math.ceil(sortedContatos.length / perPage) || 1
+  // Agrupamento por Revenda (preserva a ordem e inclui contatos paginados ou todos os contatos filtrados)
+  interface RevendaGroup {
+    revendaId: string
+    revendaNome: string
+    revendaCodigo?: string
+    revendaCidade?: string
+    revendaEstado?: string
+    revendaSegmentoNome?: string
+    contatos: Contato[]
+    isSemRevenda?: boolean
+  }
+
+  // Agrupa os contatos da página atual (ou da lista filtrada se desabilitar agrupamento)
   const paginatedContatos = useMemo(() => {
     const start = (currentPage - 1) * perPage
     return sortedContatos.slice(start, start + perPage)
   }, [sortedContatos, currentPage, perPage])
+
+  const groupedPaginatedContatos = useMemo(() => {
+    const groups: RevendaGroup[] = []
+    const groupMap = new Map<string, RevendaGroup>()
+
+    for (const contato of paginatedContatos) {
+      const revId = contato.revenda || 'sem_revenda'
+      let grp = groupMap.get(revId)
+      if (!grp) {
+        const rObj = contato.revenda ? revendaMap.get(contato.revenda) : contato.expand?.revenda
+        const segObj = rObj?.segmento
+          ? segmentos.find((s) => s.id === rObj.segmento)
+          : (rObj as unknown as { expand?: { segmento?: { nome?: string } } })?.expand?.segmento
+        grp = {
+          revendaId: revId,
+          revendaNome:
+            rObj?.nome ||
+            (revId === 'sem_revenda'
+              ? 'Contatos sem Revenda Vinculada'
+              : 'Revenda não identificada'),
+          revendaCodigo: rObj?.codigo,
+          revendaCidade: rObj?.cidade,
+          revendaEstado: rObj?.estado,
+          revendaSegmentoNome: segObj?.nome,
+          contatos: [],
+          isSemRevenda: revId === 'sem_revenda',
+        }
+        groupMap.set(revId, grp)
+        groups.push(grp)
+      }
+      grp.contatos.push(contato)
+    }
+
+    return groups
+  }, [paginatedContatos, revendaMap, segmentos])
+
+  // Total de revendas distintas na página atual e no total filtrado
+  const totalRevendasNaPagina = groupedPaginatedContatos.length
+
+  const handleToggleCollapse = (revendaId: string) => {
+    setCollapsedRevendas((prev) => ({
+      ...prev,
+      [revendaId]: !prev[revendaId],
+    }))
+  }
+
+  const handleExpandAll = () => {
+    setCollapsedRevendas({})
+  }
+
+  const handleCollapseAll = () => {
+    const newState: Record<string, boolean> = {}
+    for (const g of groupedPaginatedContatos) {
+      newState[g.revendaId] = true
+    }
+    setCollapsedRevendas(newState)
+  }
+
+  const allCollapsed =
+    groupedPaginatedContatos.length > 0 &&
+    groupedPaginatedContatos.every((g) => !!collapsedRevendas[g.revendaId])
+
+  // Paginação
+  const totalPages = Math.ceil(sortedContatos.length / perPage) || 1
 
   const handleSort = (field: 'nome' | 'email' | 'revenda' | 'updated') => {
     if (sortField === field) {
@@ -321,6 +470,7 @@ export const ContatosScreen: React.FC = () => {
   const limparFiltros = () => {
     startTransition(() => {
       setSearchGeral('')
+      setFilterSegmento('all')
       setFilterRevenda('all')
       setFilterCargo('all')
       setFilterStatus('all')
@@ -362,6 +512,112 @@ export const ContatosScreen: React.FC = () => {
         </div>
       </div>
 
+      {/* CARDS / CHIPS DE RESUMO POR SEGMENTO (QUANTIDADE POR REVENDAS DISTINTAS) */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-blue-600" />
+            <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+              Revendas por Segmento
+            </span>
+            <span className="text-[11px] text-slate-500 font-normal">
+              (Totaliza a quantidade de revendas distintas em cada segmento)
+            </span>
+          </div>
+          <div className="text-xs font-medium text-slate-600">
+            Total na base:{' '}
+            <span className="font-bold text-slate-900">
+              {statsRevendasPorSegmento.totalGeralRevendas} revendas
+            </span>
+            <span className="text-slate-300 mx-1.5">|</span>
+            <span className="font-bold text-slate-900">{contatos.length} contatos</span>
+          </div>
+        </div>
+
+        {/* Chips clicáveis de filtro rápido por segmento */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => {
+              setFilterSegmento('all')
+              setCurrentPage(1)
+            }}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              filterSegmento === 'all'
+                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/25 ring-2 ring-blue-600 ring-offset-1'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80'
+            }`}
+          >
+            <span>Todos os segmentos</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                filterSegmento === 'all'
+                  ? 'bg-blue-700 text-white'
+                  : 'bg-white text-slate-700 border border-slate-200'
+              }`}
+            >
+              {statsRevendasPorSegmento.totalGeralRevendas} revendas
+            </span>
+          </button>
+
+          {statsRevendasPorSegmento.items.map((seg) => {
+            const isSelected = filterSegmento === seg.id
+            return (
+              <button
+                key={seg.id}
+                type="button"
+                onClick={() => {
+                  setFilterSegmento(isSelected ? 'all' : seg.id)
+                  setCurrentPage(1)
+                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  isSelected
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/25 ring-2 ring-blue-600 ring-offset-1'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80'
+                }`}
+              >
+                <span>{seg.nome}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    isSelected
+                      ? 'bg-blue-700 text-white'
+                      : 'bg-white text-slate-800 border border-slate-200'
+                  }`}
+                >
+                  {seg.totalRevendas} {seg.totalRevendas === 1 ? 'revenda' : 'revendas'}
+                </span>
+              </button>
+            )
+          })}
+
+          {statsRevendasPorSegmento.semSegmento > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterSegmento(filterSegmento === 'sem_segmento' ? 'all' : 'sem_segmento')
+                setCurrentPage(1)
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterSegmento === 'sem_segmento'
+                  ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-600 ring-offset-1'
+                  : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100/80'
+              }`}
+            >
+              <span>Sem segmento definido</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                  filterSegmento === 'sem_segmento'
+                    ? 'bg-amber-700 text-white'
+                    : 'bg-white text-amber-800 border border-amber-200'
+                }`}
+              >
+                {statsRevendasPorSegmento.semSegmento}
+              </span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* FILTROS */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -397,6 +653,27 @@ export const ContatosScreen: React.FC = () => {
                 className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
               />
             </div>
+          </div>
+
+          {/* Segmento */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Segmento</label>
+            <select
+              value={filterSegmento}
+              onChange={(e) => {
+                setFilterSegmento(e.target.value)
+                setCurrentPage(1)
+              }}
+              className="w-full py-1.5 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">Todos os segmentos</option>
+              {segmentos.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nome}
+                </option>
+              ))}
+              <option value="sem_segmento">Sem segmento</option>
+            </select>
           </div>
 
           {/* Revenda */}
@@ -458,26 +735,80 @@ export const ContatosScreen: React.FC = () => {
               <option value="nao">Não (Secundários)</option>
             </select>
           </div>
-
-          {/* Recebe E-mails */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-              Recebe Comunicações?
-            </label>
-            <select
-              value={filterComunicacoes}
-              onChange={(e) => {
-                setFilterComunicacoes(e.target.value)
-                setCurrentPage(1)
-              }}
-              className="w-full py-1.5 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
-            >
-              <option value="all">Todos</option>
-              <option value="sim">Sim (Opt-in)</option>
-              <option value="nao">Não (Bloqueados)</option>
-            </select>
-          </div>
         </div>
+      </div>
+
+      {/* CONTROLE DE AGRUPAMENTO POR REVENDA E AÇÕES DE EXPANDIR/COLAPSAR */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-800 select-none">
+            <input
+              type="checkbox"
+              checked={groupByRevenda}
+              onChange={(e) => setGroupByRevenda(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="flex items-center gap-1.5">
+              <Layers className="h-4 w-4 text-blue-600" />
+              <span>Agrupar contatos por revenda</span>
+            </span>
+          </label>
+          <span className="text-slate-300 hidden sm:inline">|</span>
+          <span className="text-slate-500">
+            {groupByRevenda ? (
+              <>
+                <strong className="text-slate-800">{totalRevendasNaPagina}</strong>{' '}
+                {totalRevendasNaPagina === 1 ? 'revenda nesta página' : 'revendas nesta página'} (
+                <strong className="text-slate-800">{paginatedContatos.length}</strong> contatos)
+              </>
+            ) : (
+              <>
+                Modo lista plana:{' '}
+                <strong className="text-slate-800">{paginatedContatos.length}</strong> contatos
+              </>
+            )}
+          </span>
+        </div>
+
+        {groupByRevenda && groupedPaginatedContatos.length > 0 && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={allCollapsed ? handleExpandAll : handleCollapseAll}
+              className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition-colors shadow-xs"
+            >
+              {allCollapsed ? (
+                <>
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Expandir todas</span>
+                </>
+              ) : (
+                <>
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Colapsar todas</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleExpandAll}
+              disabled={Object.keys(collapsedRevendas).length === 0}
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition-colors shadow-xs disabled:opacity-40"
+            >
+              <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+              <span>Expandir todas</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleCollapseAll}
+              disabled={allCollapsed}
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition-colors shadow-xs disabled:opacity-40"
+            >
+              <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+              <span>Colapsar todas</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* TABELA DE CONTATOS */}
@@ -560,143 +891,355 @@ export const ContatosScreen: React.FC = () => {
                     <span>Nenhum contato encontrado.</span>
                   </td>
                 </tr>
-              ) : (
-                paginatedContatos.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
-                    {/* Estrela contato principal */}
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleTogglePrincipal(c)}
-                        disabled={!canWrite}
-                        title={c.contato_principal ? 'Contato Principal' : 'Marcar como Principal'}
-                        className={`p-1 rounded transition-colors ${
-                          c.contato_principal
-                            ? 'text-amber-500 hover:text-amber-600'
-                            : 'text-slate-300 hover:text-slate-400'
-                        }`}
-                      >
-                        <Star
-                          className={`h-4 w-4 ${c.contato_principal ? 'fill-amber-400' : ''}`}
-                        />
-                      </button>
-                    </td>
-
-                    {/* Nome */}
-                    <td className="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
-                      {c.nome}
-                    </td>
-
-                    {/* Revenda */}
-                    <td className="py-3 px-4">
-                      {c.expand?.revenda ? (
-                        <div>
-                          <Link
-                            to={`/revendas/${c.expand.revenda.id}`}
-                            className="font-medium text-blue-600 hover:underline inline-flex items-center gap-1"
-                          >
-                            <span>{c.expand.revenda.nome}</span>
-                            <ExternalLink className="h-3 w-3" />
-                          </Link>
-                          {c.expand.revenda.codigo && (
-                            <div className="mt-0.5">
-                              <span className="font-mono text-[11px] font-semibold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
-                                Cód: {c.expand.revenda.codigo}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-
-                    {/* Cargo */}
-                    <td className="py-3 px-4 text-slate-600">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
-                        {c.expand?.cargo?.nome || '—'}
-                      </span>
-                    </td>
-
-                    {/* E-mail */}
-                    <td className="py-3 px-4">
-                      {c.email ? (
-                        <a
-                          href={`mailto:${c.email}`}
-                          className="text-blue-700 hover:underline font-medium"
+              ) : !groupByRevenda ? (
+                // MODO PLANO (SEM AGRUPAMENTO)
+                paginatedContatos.map((c) => {
+                  const revObj = c.revenda ? revendaMap.get(c.revenda) : c.expand?.revenda
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
+                      {/* Estrela contato principal */}
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePrincipal(c)}
+                          disabled={!canWrite}
+                          title={
+                            c.contato_principal ? 'Contato Principal' : 'Marcar como Principal'
+                          }
+                          className={`p-1 rounded transition-colors ${
+                            c.contato_principal
+                              ? 'text-amber-500 hover:text-amber-600'
+                              : 'text-slate-300 hover:text-slate-400'
+                          }`}
                         >
-                          {c.email}
-                        </a>
-                      ) : (
-                        <span className="text-slate-400 italic">Sem e-mail</span>
-                      )}
-                      {c.email_secundario && (
-                        <span className="block text-[11px] text-slate-400">
-                          {c.email_secundario}
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Telefones */}
-                    <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                      {c.telefone || c.celular || c.whatsapp || '—'}
-                    </td>
-
-                    {/* Recebe E-mails */}
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleComunicacoes(c)}
-                        disabled={!canWrite}
-                        title={
-                          c.recebe_comunicacoes !== false ? 'Recebe comunicações' : 'Não recebe'
-                        }
-                        className="inline-flex items-center justify-center text-blue-600"
-                      >
-                        {c.recebe_comunicacoes !== false ? (
-                          <ToggleRight className="h-6 w-6 text-blue-600" />
-                        ) : (
-                          <ToggleLeft className="h-6 w-6 text-slate-300" />
-                        )}
-                      </button>
-                    </td>
-
-                    {/* Status */}
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase ${
-                          c.status_contato === 'Inativo'
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        }`}
-                      >
-                        {c.status_contato || 'Ativo'}
-                      </span>
-                    </td>
-
-                    {/* Ações */}
-                    {canWrite && (
-                      <td className="py-3 px-4 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => handleOpenModal(c)}
-                            title="Editar contato"
-                            className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(c.id, c.nome)}
-                            title="Excluir contato"
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                          <Star
+                            className={`h-4 w-4 ${c.contato_principal ? 'fill-amber-400' : ''}`}
+                          />
+                        </button>
                       </td>
-                    )}
-                  </tr>
-                ))
+
+                      {/* Nome */}
+                      <td className="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
+                        {c.nome}
+                      </td>
+
+                      {/* Revenda */}
+                      <td className="py-3 px-4">
+                        {revObj ? (
+                          <div>
+                            <Link
+                              to={`/revendas/${revObj.id}`}
+                              className="font-medium text-blue-600 hover:underline inline-flex items-center gap-1"
+                            >
+                              <span>{revObj.nome}</span>
+                              <ExternalLink className="h-3 w-3" />
+                            </Link>
+                            {revObj.codigo && (
+                              <div className="mt-0.5">
+                                <span className="font-mono text-[11px] font-semibold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+                                  Cód: {revObj.codigo}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+
+                      {/* Cargo */}
+                      <td className="py-3 px-4 text-slate-600">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
+                          {c.expand?.cargo?.nome || '—'}
+                        </span>
+                      </td>
+
+                      {/* E-mail */}
+                      <td className="py-3 px-4">
+                        {c.email ? (
+                          <a
+                            href={`mailto:${c.email}`}
+                            className="text-blue-700 hover:underline font-medium"
+                          >
+                            {c.email}
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 italic">Sem e-mail</span>
+                        )}
+                        {c.email_secundario && (
+                          <span className="block text-[11px] text-slate-400">
+                            {c.email_secundario}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Telefones */}
+                      <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                        {c.telefone || c.celular || c.whatsapp || '—'}
+                      </td>
+
+                      {/* Recebe E-mails */}
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleComunicacoes(c)}
+                          disabled={!canWrite}
+                          title={
+                            c.recebe_comunicacoes !== false ? 'Recebe comunicações' : 'Não recebe'
+                          }
+                          className="inline-flex items-center justify-center text-blue-600"
+                        >
+                          {c.recebe_comunicacoes !== false ? (
+                            <ToggleRight className="h-6 w-6 text-blue-600" />
+                          ) : (
+                            <ToggleLeft className="h-6 w-6 text-slate-300" />
+                          )}
+                        </button>
+                      </td>
+
+                      {/* Status */}
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase ${
+                            c.status_contato === 'Inativo'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}
+                        >
+                          {c.status_contato || 'Ativo'}
+                        </span>
+                      </td>
+
+                      {/* Ações */}
+                      {canWrite && (
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenModal(c)}
+                              title="Editar contato"
+                              className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(c.id, c.nome)}
+                              title="Excluir contato"
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })
+              ) : (
+                // MODO AGRUPADO COLAPSÁVEL POR REVENDA
+                groupedPaginatedContatos.map((group) => {
+                  const isCollapsed = !!collapsedRevendas[group.revendaId]
+                  return (
+                    <React.Fragment key={`group-${group.revendaId}`}>
+                      {/* CABEÇALHO DO GRUPO (REVENDA) */}
+                      <tr className="bg-slate-100/90 border-y border-slate-200 hover:bg-slate-200/70 transition-colors">
+                        <td colSpan={9} className="py-2.5 px-3">
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleCollapse(group.revendaId)}
+                              className="flex items-center gap-2.5 text-left font-bold text-slate-900 hover:text-blue-600 select-none group/btn"
+                            >
+                              <span className="p-1 rounded bg-white border border-slate-200 text-slate-600 group-hover/btn:border-blue-300 group-hover/btn:text-blue-600 transition-colors shadow-2xs">
+                                {isCollapsed ? (
+                                  <ChevronRight className="h-3.5 w-3.5" />
+                                ) : (
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                )}
+                              </span>
+
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Building2 className="h-4 w-4 text-blue-600" />
+                                <span className="text-xs tracking-tight">{group.revendaNome}</span>
+
+                                {group.revendaCodigo && (
+                                  <span className="font-mono text-[10px] font-bold bg-white text-slate-700 px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs">
+                                    Cód: {group.revendaCodigo}
+                                  </span>
+                                )}
+
+                                {group.revendaSegmentoNome && (
+                                  <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                                    {group.revendaSegmentoNome}
+                                  </span>
+                                )}
+
+                                {(group.revendaCidade || group.revendaEstado) && (
+                                  <span className="text-[11px] text-slate-500 font-normal">
+                                    {[group.revendaCidade, group.revendaEstado]
+                                      .filter(Boolean)
+                                      .join(' / ')}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-[11px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-full border border-slate-200 shadow-2xs">
+                                {group.contatos.length}{' '}
+                                {group.contatos.length === 1 ? 'contato' : 'contatos'}
+                              </span>
+
+                              {!group.isSemRevenda && (
+                                <Link
+                                  to={`/revendas/${group.revendaId}`}
+                                  className="text-[11px] font-medium text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs"
+                                  title="Ver cadastro da revenda"
+                                >
+                                  <span>Abrir Revenda</span>
+                                  <ExternalLink className="h-3 w-3" />
+                                </Link>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* LINHAS DE CONTATOS DA REVENDA (QUANDO NÃO COLAPSADO) */}
+                      {!isCollapsed &&
+                        group.contatos.map((c) => (
+                          <tr
+                            key={c.id}
+                            className="hover:bg-slate-50/80 transition-colors bg-white"
+                          >
+                            {/* Estrela contato principal */}
+                            <td className="py-2.5 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePrincipal(c)}
+                                disabled={!canWrite}
+                                title={
+                                  c.contato_principal
+                                    ? 'Contato Principal'
+                                    : 'Marcar como Principal'
+                                }
+                                className={`p-1 rounded transition-colors ${
+                                  c.contato_principal
+                                    ? 'text-amber-500 hover:text-amber-600'
+                                    : 'text-slate-300 hover:text-slate-400'
+                                }`}
+                              >
+                                <Star
+                                  className={`h-4 w-4 ${
+                                    c.contato_principal ? 'fill-amber-400' : ''
+                                  }`}
+                                />
+                              </button>
+                            </td>
+
+                            {/* Nome */}
+                            <td className="py-2.5 px-4 font-semibold text-slate-900 whitespace-nowrap pl-6">
+                              <div className="flex items-center gap-1.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+                                <span>{c.nome}</span>
+                              </div>
+                            </td>
+
+                            {/* Revenda (no modo agrupado exibe um resumo/link rápido) */}
+                            <td className="py-2.5 px-4 text-slate-600 text-[11px]">
+                              {group.revendaNome}
+                            </td>
+
+                            {/* Cargo */}
+                            <td className="py-2.5 px-4 text-slate-600">
+                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
+                                {c.expand?.cargo?.nome || '—'}
+                              </span>
+                            </td>
+
+                            {/* E-mail */}
+                            <td className="py-2.5 px-4">
+                              {c.email ? (
+                                <a
+                                  href={`mailto:${c.email}`}
+                                  className="text-blue-700 hover:underline font-medium"
+                                >
+                                  {c.email}
+                                </a>
+                              ) : (
+                                <span className="text-slate-400 italic">Sem e-mail</span>
+                              )}
+                              {c.email_secundario && (
+                                <span className="block text-[11px] text-slate-400">
+                                  {c.email_secundario}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Telefones */}
+                            <td className="py-2.5 px-4 text-slate-600 whitespace-nowrap">
+                              {c.telefone || c.celular || c.whatsapp || '—'}
+                            </td>
+
+                            {/* Recebe E-mails */}
+                            <td className="py-2.5 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleComunicacoes(c)}
+                                disabled={!canWrite}
+                                title={
+                                  c.recebe_comunicacoes !== false
+                                    ? 'Recebe comunicações'
+                                    : 'Não recebe'
+                                }
+                                className="inline-flex items-center justify-center text-blue-600"
+                              >
+                                {c.recebe_comunicacoes !== false ? (
+                                  <ToggleRight className="h-6 w-6 text-blue-600" />
+                                ) : (
+                                  <ToggleLeft className="h-6 w-6 text-slate-300" />
+                                )}
+                              </button>
+                            </td>
+
+                            {/* Status */}
+                            <td className="py-2.5 px-4">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase ${
+                                  c.status_contato === 'Inativo'
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                }`}
+                              >
+                                {c.status_contato || 'Ativo'}
+                              </span>
+                            </td>
+
+                            {/* Ações */}
+                            {canWrite && (
+                              <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenModal(c)}
+                                    title="Editar contato"
+                                    className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDelete(c.id, c.nome)}
+                                    title="Excluir contato"
+                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                    </React.Fragment>
+                  )
+                })
               )}
             </tbody>
           </table>
