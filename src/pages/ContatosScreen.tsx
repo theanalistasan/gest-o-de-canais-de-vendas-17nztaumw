@@ -867,12 +867,12 @@ export const ContatosScreen: React.FC = () => {
               <tr>
                 <th className="py-3 px-4 w-10 text-center">Princ.</th>
                 <th
-                  onClick={() => handleSort('nome')}
+                  onClick={() => handleSort('revenda')}
                   className="py-3 px-4 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Nome</span>
-                    {sortField === 'nome' ? (
+                    <span>Revenda</span>
+                    {sortField === 'revenda' ? (
                       sortDir === 'asc' ? (
                         <ArrowUp className="h-3 w-3 text-blue-600" />
                       ) : (
@@ -884,12 +884,12 @@ export const ContatosScreen: React.FC = () => {
                   </div>
                 </th>
                 <th
-                  onClick={() => handleSort('revenda')}
+                  onClick={() => handleSort('nome')}
                   className="py-3 px-4 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Revenda</span>
-                    {sortField === 'revenda' ? (
+                    <span>Nome</span>
+                    {sortField === 'nome' ? (
                       sortDir === 'asc' ? (
                         <ArrowUp className="h-3 w-3 text-blue-600" />
                       ) : (
@@ -966,12 +966,7 @@ export const ContatosScreen: React.FC = () => {
                         </button>
                       </td>
 
-                      {/* Nome */}
-                      <td className="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
-                        {c.nome}
-                      </td>
-
-                      {/* Revenda */}
+                      {/* Revenda (Primeira coluna de dados) */}
                       <td className="py-3 px-4">
                         {revObj ? (
                           <div>
@@ -993,6 +988,11 @@ export const ContatosScreen: React.FC = () => {
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
+                      </td>
+
+                      {/* Nome (Segunda coluna de dados) */}
+                      <td className="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
+                        {c.nome}
                       </td>
 
                       {/* Cargo */}
@@ -1184,17 +1184,17 @@ export const ContatosScreen: React.FC = () => {
                               </button>
                             </td>
 
+                            {/* Revenda (no modo agrupado exibe um resumo/link rápido) */}
+                            <td className="py-2.5 px-4 text-slate-600 text-[11px]">
+                              {group.revendaNome}
+                            </td>
+
                             {/* Nome */}
                             <td className="py-2.5 px-4 font-semibold text-slate-900 whitespace-nowrap pl-6">
                               <div className="flex items-center gap-1.5">
                                 <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
                                 <span>{c.nome}</span>
                               </div>
-                            </td>
-
-                            {/* Revenda (no modo agrupado exibe um resumo/link rápido) */}
-                            <td className="py-2.5 px-4 text-slate-600 text-[11px]">
-                              {group.revendaNome}
                             </td>
 
                             {/* Cargo */}

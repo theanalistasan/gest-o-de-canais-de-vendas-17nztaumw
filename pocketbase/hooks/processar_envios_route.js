@@ -11,11 +11,13 @@ routerAdd(
       return e.json(401, { success: false, error: 'Autenticação necessária.' })
     }
     const userRole = authRecord.getString('role')
-    if (userRole === 'consulta') {
+    if (userRole === 'consulta' || userRole === 'suporte') {
       return e.json(403, {
         success: false,
         error:
-          'Acesso negado: usuários com perfil Consulta não possuem permissão para disparar ou reprocessar comunicações.',
+          'Acesso negado: usuários com perfil ' +
+          (userRole === 'suporte' ? 'Suporte' : 'Consulta') +
+          ' não possuem permissão para disparar ou reprocessar comunicações.',
       })
     }
 

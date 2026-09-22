@@ -89,6 +89,12 @@ export default function Layout() {
             Gestor
           </span>
         )
+      case 'suporte':
+        return (
+          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30">
+            Suporte
+          </span>
+        )
       default:
         return (
           <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-300 border border-slate-400/30">
@@ -293,7 +299,7 @@ export default function Layout() {
         {/* FOOTER */}
         <footer className="h-9 bg-white border-t border-slate-200 px-6 flex items-center justify-between text-[11px] text-slate-500 flex-shrink-0">
           <span>Gestão de Canais de Vendas & Revendas © {new Date().getFullYear()}</span>
-          <span>Versão 0.0.33 • Roland DG Brasil</span>
+          <span>Versão 0.0.34 • Roland DG Brasil</span>
         </footer>
       </div>
     </div>

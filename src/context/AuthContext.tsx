@@ -10,7 +10,11 @@ interface AuthContextType {
   isAdmin: boolean
   isGestor: boolean
   isConsulta: boolean
+  isSuporte: boolean
   canWrite: boolean
+  canCadastros: boolean
+  canComunicacoes: boolean
+  canDelete: boolean
   logout: () => void
   refreshUser: () => Promise<void>
 }
@@ -75,7 +79,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAdmin = role === 'admin'
   const isGestor = role === 'gestor'
   const isConsulta = role === 'consulta'
-  const canWrite = isAdmin || isGestor
+  const isSuporte = role === 'suporte'
+  // canWrite padrão: permissão geral para cadastros (admin, gestor, suporte)
+  const canCadastros = isAdmin || isGestor || isSuporte
+  // canWrite mantido para retrocompatibilidade onde usado em cadastros
+  const canWrite = canCadastros
+  // comunicações: suporte e consulta NÃO podem disparar ou criar campanhas
+  const canComunicacoes = isAdmin || isGestor
+  // exclusão: suporte e consulta NÃO podem excluir nada
+  const canDelete = isAdmin || isGestor
 
   const value = useMemo(
     () => ({
@@ -86,11 +98,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAdmin,
       isGestor,
       isConsulta,
+      isSuporte,
       canWrite,
+      canCadastros,
+      canComunicacoes,
+      canDelete,
       logout,
       refreshUser,
     }),
-    [user, role, isLoading, isAdmin, isGestor, isConsulta, canWrite],
+    [
+      user,
+      role,
+      isLoading,
+      isAdmin,
+      isGestor,
+      isConsulta,
+      isSuporte,
+      canWrite,
+      canCadastros,
+      canComunicacoes,
+      canDelete,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

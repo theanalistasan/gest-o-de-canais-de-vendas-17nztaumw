@@ -91,7 +91,7 @@ export const AdministracaoScreen: React.FC = () => {
   const [userFormData, setUserFormData] = useState({
     name: '',
     email: '',
-    role: 'consulta' as 'admin' | 'gestor' | 'consulta',
+    role: 'consulta' as 'admin' | 'gestor' | 'consulta' | 'suporte',
     password: '',
   })
 
@@ -556,7 +556,7 @@ export const AdministracaoScreen: React.FC = () => {
             <div>
               <h3 className="text-sm font-bold text-slate-900">Usuários Cadastrados</h3>
               <p className="text-xs text-slate-400">
-                Controle de credenciais e níveis de acesso (Admin / Gestor / Consulta)
+                Controle de credenciais e níveis de acesso (Admin / Gestor / Suporte / Consulta)
               </p>
             </div>
             <button
@@ -605,7 +605,9 @@ export const AdministracaoScreen: React.FC = () => {
                               ? 'bg-blue-50 text-blue-700 border border-blue-200'
                               : u.role === 'gestor'
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                : u.role === 'suporte'
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
                           }`}
                         >
                           {u.role || 'consulta'}
@@ -1400,6 +1402,9 @@ export const AdministracaoScreen: React.FC = () => {
                 >
                   <option value="admin">Administrador (Acesso total)</option>
                   <option value="gestor">Gestor (Cadastros & Comunicações)</option>
+                  <option value="suporte">
+                    Suporte (Apenas Cadastros - Sem Comunicações/Exclusões)
+                  </option>
                   <option value="consulta">Consulta (Somente leitura)</option>
                 </select>
               </div>
