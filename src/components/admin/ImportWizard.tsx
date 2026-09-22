@@ -37,6 +37,18 @@ interface FieldMapping {
   telefone: number
 }
 
+interface ProcessedContatoItem {
+  nome: string
+  cargo?: string
+  email?: string
+  emailSecundario?: string
+  telefone?: string
+  isPrincipal: boolean
+  issues: string[]
+  existingId?: string
+  isExisting?: boolean
+}
+
 interface ProcessedRevendaGroup {
   codigo?: string
   nome: string
@@ -46,15 +58,9 @@ interface ProcessedRevendaGroup {
   responsavel?: string
   estado?: string
   cidade?: string
-  contatos: Array<{
-    nome: string
-    cargo?: string
-    email?: string
-    emailSecundario?: string
-    telefone?: string
-    isPrincipal: boolean
-    issues: string[]
-  }>
+  existingId?: string
+  isExisting?: boolean
+  contatos: ProcessedContatoItem[]
   issues: string[]
 }
 
@@ -97,10 +103,13 @@ export const ImportWizard: React.FC = () => {
   const [newSynTo, setNewSynTo] = useState('')
 
   // Etapa 4: Validação em memória
+  const [isValidatingDb, setIsValidatingDb] = useState(false)
   const [processedGroups, setProcessedGroups] = useState<ProcessedRevendaGroup[]>([])
   const [validationSummary, setValidationSummary] = useState({
     totalRevendas: 0,
+    revendasExistentes: 0,
     totalContatos: 0,
+    contatosExistentes: 0,
     contatosSemEmail: 0,
     emailsInvalidos: 0,
     codigosDuplicados: 0,
@@ -115,6 +124,7 @@ export const ImportWizard: React.FC = () => {
     revendasCriadas: 0,
     revendasAtualizadas: 0,
     contatosCriados: 0,
+    contatosAtualizados: 0,
     auxiliaresCriadas: 0,
     descartados: 0,
   })
@@ -207,139 +217,224 @@ export const ImportWizard: React.FC = () => {
     setMapping(map)
   }
 
-  // ETAPA 3 -> 4: Agrupamento em memória respeitando linhas de revenda + contatos filhos vazios
-  const handleProcessAndValidate = () => {
-    const groups: ProcessedRevendaGroup[] = []
-    let currentGroup: ProcessedRevendaGroup | null = null
-
-    let semEmail = 0
-    let emailsInv = 0
-    const codigosSeen = new Set<string>()
-    let dupCodigos = 0
-
-    for (let i = 0; i < rawRows.length; i++) {
-      const row = rawRows[i]
-
-      const rawCodigo = mapping.codigo >= 0 ? (row[mapping.codigo] || '').trim() : ''
-      const rawRevenda = mapping.revenda >= 0 ? (row[mapping.revenda] || '').trim() : ''
-      const rawSegmento = mapping.segmento >= 0 ? (row[mapping.segmento] || '').trim() : ''
-      const rawInside = mapping.insideSales >= 0 ? (row[mapping.insideSales] || '').trim() : ''
-      const rawCanal =
-        mapping.canalFaturamento >= 0 ? (row[mapping.canalFaturamento] || '').trim() : ''
-      const rawResp = mapping.responsavel >= 0 ? (row[mapping.responsavel] || '').trim() : ''
-      const rawEstado = mapping.estado >= 0 ? (row[mapping.estado] || '').trim() : ''
-      const rawCidade = mapping.cidade >= 0 ? (row[mapping.cidade] || '').trim() : ''
-
-      const rawNomeContato = mapping.nomeContato >= 0 ? (row[mapping.nomeContato] || '').trim() : ''
-      let rawCargo = mapping.cargo >= 0 ? (row[mapping.cargo] || '').trim() : ''
-      const rawEmail = mapping.email >= 0 ? (row[mapping.email] || '').trim() : ''
-      const rawTel = mapping.telefone >= 0 ? (row[mapping.telefone] || '').trim() : ''
-
-      // Padronização de cargos por sinônimos
-      if (rawCargo) {
-        for (const syn of synonyms) {
-          if (rawCargo.toUpperCase() === syn.from.toUpperCase()) {
-            rawCargo = syn.to
-            break
-          }
-        }
-      }
-
-      // Tratar e-mails múltiplos
-      let primaryEmail = rawEmail
-      let secondaryEmail = ''
-      if (separateMultipleEmails && rawEmail) {
-        const parts = rawEmail
-          .split(/;|\/|,/)
-          .map((p) => p.trim())
-          .filter(Boolean)
-        if (parts.length > 0) primaryEmail = parts[0]
-        if (parts.length > 1) secondaryEmail = parts[1]
-      }
-
-      // Validação de e-mail
-      const emailIssues: string[] = []
-      if (!primaryEmail) {
-        semEmail++
-        emailIssues.push('Contato sem e-mail')
-      } else if (
-        validateEmailFormat &&
-        (!primaryEmail.includes('@') || !primaryEmail.includes('.'))
-      ) {
-        emailsInv++
-        emailIssues.push('Formato de e-mail inválido')
-      }
-
-      // É uma nova revenda ou uma linha de contato filho?
-      // LÓGICA DA PLANILHA: Linhas com código ou revenda preenchidos definem a nova revenda
-      const isNewRevendaLine =
-        !!rawCodigo || (!!rawRevenda && (!currentGroup || rawRevenda !== currentGroup.nome))
-
-      if (isNewRevendaLine) {
-        if (currentGroup) {
-          groups.push(currentGroup)
-        }
-
-        const revendaIssues: string[] = []
-        if (!rawRevenda && !rawCodigo) {
-          revendaIssues.push('Revenda sem nome e sem código')
-        }
-        if (rawCodigo) {
-          if (codigosSeen.has(rawCodigo)) {
-            dupCodigos++
-            revendaIssues.push(`Código duplicado: ${rawCodigo}`)
-          } else {
-            codigosSeen.add(rawCodigo)
-          }
-        }
-
-        currentGroup = {
-          codigo: rawCodigo || undefined,
-          nome: rawRevenda || `Revenda ${rawCodigo || groups.length + 1}`,
-          segmento: rawSegmento || 'DIGITAL PRINTING (DP)',
-          insideSales: rawInside || undefined,
-          canalFaturamento: rawCanal || undefined,
-          responsavel: rawResp || undefined,
-          estado: rawEstado || undefined,
-          cidade: rawCidade || undefined,
-          contatos: [],
-          issues: revendaIssues,
-        }
-      }
-
-      // Se há nome de contato nesta linha, adiciona ao grupo atual
-      if (currentGroup && (rawNomeContato || primaryEmail)) {
-        currentGroup.contatos.push({
-          nome: rawNomeContato || 'Contato sem nome',
-          cargo: rawCargo || undefined,
-          email: primaryEmail || undefined,
-          emailSecundario: secondaryEmail || undefined,
-          telefone: rawTel || undefined,
-          isPrincipal: currentGroup.contatos.length === 0, // Primeiro contato é o principal
-          issues: emailIssues,
-        })
-      }
-    }
-
-    if (currentGroup) {
-      groups.push(currentGroup)
-    }
-
-    const totalConts = groups.reduce((acc, g) => acc + g.contatos.length, 0)
-
-    setProcessedGroups(groups)
-    setValidationSummary({
-      totalRevendas: groups.length,
-      totalContatos: totalConts,
-      contatosSemEmail: semEmail,
-      emailsInvalidos: emailsInv,
-      codigosDuplicados: dupCodigos,
-    })
-
-    setCurrentStep(4)
+  const normalizeText = (text?: string): string => {
+    if (!text) return ''
+    return text
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim()
   }
 
-  // ETAPA 5: Gravar tudo no PocketBase em lote
+  // ETAPA 3 -> 4: Agrupamento em memória e checagem com o banco de dados contra duplicidade
+  const handleProcessAndValidate = async () => {
+    setIsValidatingDb(true)
+    try {
+      const groups: ProcessedRevendaGroup[] = []
+      let currentGroup: ProcessedRevendaGroup | null = null
+
+      let semEmail = 0
+      let emailsInv = 0
+      const codigosSeen = new Set<string>()
+      let dupCodigos = 0
+
+      for (let i = 0; i < rawRows.length; i++) {
+        const row = rawRows[i]
+
+        const rawCodigo = mapping.codigo >= 0 ? (row[mapping.codigo] || '').trim() : ''
+        const rawRevenda = mapping.revenda >= 0 ? (row[mapping.revenda] || '').trim() : ''
+        const rawSegmento = mapping.segmento >= 0 ? (row[mapping.segmento] || '').trim() : ''
+        const rawInside = mapping.insideSales >= 0 ? (row[mapping.insideSales] || '').trim() : ''
+        const rawCanal =
+          mapping.canalFaturamento >= 0 ? (row[mapping.canalFaturamento] || '').trim() : ''
+        const rawResp = mapping.responsavel >= 0 ? (row[mapping.responsavel] || '').trim() : ''
+        const rawEstado = mapping.estado >= 0 ? (row[mapping.estado] || '').trim() : ''
+        const rawCidade = mapping.cidade >= 0 ? (row[mapping.cidade] || '').trim() : ''
+
+        const rawNomeContato =
+          mapping.nomeContato >= 0 ? (row[mapping.nomeContato] || '').trim() : ''
+        let rawCargo = mapping.cargo >= 0 ? (row[mapping.cargo] || '').trim() : ''
+        const rawEmail = mapping.email >= 0 ? (row[mapping.email] || '').trim() : ''
+        const rawTel = mapping.telefone >= 0 ? (row[mapping.telefone] || '').trim() : ''
+
+        // Padronização de cargos por sinônimos
+        if (rawCargo) {
+          for (const syn of synonyms) {
+            if (rawCargo.toUpperCase() === syn.from.toUpperCase()) {
+              rawCargo = syn.to
+              break
+            }
+          }
+        }
+
+        // Tratar e-mails múltiplos
+        let primaryEmail = rawEmail
+        let secondaryEmail = ''
+        if (separateMultipleEmails && rawEmail) {
+          const parts = rawEmail
+            .split(/;|\/|,/)
+            .map((p) => p.trim())
+            .filter(Boolean)
+          if (parts.length > 0) primaryEmail = parts[0]
+          if (parts.length > 1) secondaryEmail = parts[1]
+        }
+
+        // Validação de e-mail
+        const emailIssues: string[] = []
+        if (!primaryEmail) {
+          semEmail++
+          emailIssues.push('Contato sem e-mail')
+        } else if (
+          validateEmailFormat &&
+          (!primaryEmail.includes('@') || !primaryEmail.includes('.'))
+        ) {
+          emailsInv++
+          emailIssues.push('Formato de e-mail inválido')
+        }
+
+        // É uma nova revenda ou uma linha de contato filho?
+        const isNewRevendaLine =
+          !!rawCodigo || (!!rawRevenda && (!currentGroup || rawRevenda !== currentGroup.nome))
+
+        if (isNewRevendaLine) {
+          if (currentGroup) {
+            groups.push(currentGroup)
+          }
+
+          const revendaIssues: string[] = []
+          if (!rawRevenda && !rawCodigo) {
+            revendaIssues.push('Revenda sem nome e sem código')
+          }
+          if (rawCodigo) {
+            if (codigosSeen.has(rawCodigo)) {
+              dupCodigos++
+              revendaIssues.push(`Código duplicado: ${rawCodigo}`)
+            } else {
+              codigosSeen.add(rawCodigo)
+            }
+          }
+
+          currentGroup = {
+            codigo: rawCodigo || undefined,
+            nome: rawRevenda || `Revenda ${rawCodigo || groups.length + 1}`,
+            segmento: rawSegmento || 'DIGITAL PRINTING (DP)',
+            insideSales: rawInside || undefined,
+            canalFaturamento: rawCanal || undefined,
+            responsavel: rawResp || undefined,
+            estado: rawEstado || undefined,
+            cidade: rawCidade || undefined,
+            contatos: [],
+            issues: revendaIssues,
+          }
+        }
+
+        // Se há nome de contato nesta linha, adiciona ao grupo atual
+        if (currentGroup && (rawNomeContato || primaryEmail)) {
+          currentGroup.contatos.push({
+            nome: rawNomeContato || 'Contato sem nome',
+            cargo: rawCargo || undefined,
+            email: primaryEmail || undefined,
+            emailSecundario: secondaryEmail || undefined,
+            telefone: rawTel || undefined,
+            isPrincipal: currentGroup.contatos.length === 0, // Primeiro contato é o principal
+            issues: emailIssues,
+          })
+        }
+      }
+
+      if (currentGroup) {
+        groups.push(currentGroup)
+      }
+
+      // Buscar revendas e contatos existentes do backend para verificar duplicatas
+      const [existingRevendas, existingContatos] = await Promise.all([
+        revendasService.getAll(),
+        contatosService.getAll(),
+      ])
+
+      // Mapa de revendas existentes por código normalizado e por nome normalizado
+      const revByCodigo = new Map<string, (typeof existingRevendas)[0]>()
+      const revByNome = new Map<string, (typeof existingRevendas)[0]>()
+      for (const r of existingRevendas) {
+        if (r.codigo) revByCodigo.set(normalizeText(r.codigo), r)
+        if (r.nome) revByNome.set(normalizeText(r.nome), r)
+      }
+
+      // Mapa de contatos existentes por chave composta: nomeNorm|||revendaId|||emailNorm
+      // Também chave sem email: nomeNorm|||revendaId|||
+      const contatosByFullKey = new Map<string, (typeof existingContatos)[0]>()
+      for (const c of existingContatos) {
+        const cNome = normalizeText(c.nome)
+        const cRevId = c.revenda || ''
+        const cEmail = normalizeText(c.email)
+        contatosByFullKey.set(`${cNome}|||${cRevId}|||${cEmail}`, c)
+        if (cEmail) {
+          // Também indexar por email|||revId caso queira conferência cruzada
+          contatosByFullKey.set(`*|||${cRevId}|||${cEmail}`, c)
+        }
+      }
+
+      let revExistentesCount = 0
+      let contExistentesCount = 0
+
+      for (const g of groups) {
+        let matchedRev = g.codigo ? revByCodigo.get(normalizeText(g.codigo)) : undefined
+        if (!matchedRev && g.nome) {
+          matchedRev = revByNome.get(normalizeText(g.nome))
+        }
+
+        if (matchedRev) {
+          g.existingId = matchedRev.id
+          g.isExisting = true
+          revExistentesCount++
+        }
+
+        const revIdForMatch = matchedRev ? matchedRev.id : ''
+
+        for (const c of g.contatos) {
+          const cNome = normalizeText(c.nome)
+          const cEmail = normalizeText(c.email)
+
+          let matchedContato = revIdForMatch
+            ? contatosByFullKey.get(`${cNome}|||${revIdForMatch}|||${cEmail}`)
+            : undefined
+
+          if (!matchedContato && revIdForMatch && cEmail) {
+            matchedContato = contatosByFullKey.get(`*|||${revIdForMatch}|||${cEmail}`)
+          }
+
+          if (matchedContato) {
+            c.existingId = matchedContato.id
+            c.isExisting = true
+            contExistentesCount++
+          }
+        }
+      }
+
+      const totalConts = groups.reduce((acc, g) => acc + g.contatos.length, 0)
+
+      setProcessedGroups(groups)
+      setValidationSummary({
+        totalRevendas: groups.length,
+        revendasExistentes: revExistentesCount,
+        totalContatos: totalConts,
+        contatosExistentes: contExistentesCount,
+        contatosSemEmail: semEmail,
+        emailsInvalidos: emailsInv,
+        codigosDuplicados: dupCodigos,
+      })
+
+      setCurrentStep(4)
+    } catch (err) {
+      console.error('Erro na validação do banco:', err)
+      alert('Erro ao validar dados contra o banco de dados.')
+    } finally {
+      setIsValidatingDb(false)
+    }
+  }
+
+  // ETAPA 5: Gravar tudo no PocketBase com Blindagem contra Duplicatas (Upsert / Merge)
   const handleExecuteImport = async () => {
     setIsImporting(true)
     setImportProgress(0)
@@ -348,6 +443,7 @@ export const ImportWizard: React.FC = () => {
     let revCriadas = 0
     let revAtualizadas = 0
     let contCriados = 0
+    let contAtualizados = 0
     let auxCriadas = 0
 
     try {
@@ -398,13 +494,38 @@ export const ImportWizard: React.FC = () => {
         }
       }
 
+      // Carregar todas as revendas e contatos existentes do backend em tempo real para blindagem total
+      setImportStatusText('Carregando base existente para cruzamento e prevenção de duplicidade...')
+      const [dbRevendas, dbContatos] = await Promise.all([
+        revendasService.getAll(),
+        contatosService.getAll(),
+      ])
+
+      const revByCodigoMap = new Map<string, (typeof dbRevendas)[0]>()
+      const revByNomeMap = new Map<string, (typeof dbRevendas)[0]>()
+      for (const r of dbRevendas) {
+        if (r.codigo) revByCodigoMap.set(normalizeText(r.codigo), r)
+        if (r.nome) revByNomeMap.set(normalizeText(r.nome), r)
+      }
+
+      const contatosByFullKeyMap = new Map<string, (typeof dbContatos)[0]>()
+      for (const c of dbContatos) {
+        const cNome = normalizeText(c.nome)
+        const cRevId = c.revenda || ''
+        const cEmail = normalizeText(c.email)
+        contatosByFullKeyMap.set(`${cNome}|||${cRevId}|||${cEmail}`, c)
+        if (cEmail) {
+          contatosByFullKeyMap.set(`*|||${cRevId}|||${cEmail}`, c)
+        }
+      }
+
       const total = processedGroups.length
 
       // 2. Criar ou atualizar cada revenda e seus contatos
       for (let i = 0; i < total; i++) {
         const g = processedGroups[i]
         setImportProgress(Math.round(((i + 1) / total) * 100))
-        setImportStatusText(`Importando revenda ${i + 1} de ${total}: ${g.nome}...`)
+        setImportStatusText(`Processando revenda ${i + 1} de ${total}: ${g.nome}...`)
 
         const segId = (await getOrCreate('segmentos', g.segmento, segMap)) || segs[0]?.id
         const insideId = g.insideSales
@@ -438,30 +559,31 @@ export const ImportWizard: React.FC = () => {
           }
         }
 
-        // Verificar se revenda já existe por código
-        let revendaRecordId = ''
-        if (g.codigo) {
-          try {
-            const existing = await pb
-              .collection('revendas')
-              .getFirstListItem(`codigo = '${g.codigo}'`)
-            revendaRecordId = existing.id
-            await revendasService.update(existing.id, {
-              nome: g.nome,
-              segmento: segId,
-              inside_sales: insideId,
-              responsavel: respId,
-              canal_faturamento: canId,
-              estado: estadoId,
-              cidade: g.cidade,
-            })
-            revAtualizadas++
-          } catch (_) {
-            // Não existe
-          }
+        // Verificar se revenda já existe por código normalizado ou nome
+        let existingRev = g.codigo ? revByCodigoMap.get(normalizeText(g.codigo)) : undefined
+        if (!existingRev && g.nome) {
+          existingRev = revByNomeMap.get(normalizeText(g.nome))
         }
 
-        if (!revendaRecordId) {
+        let revendaRecordId = ''
+        if (existingRev) {
+          revendaRecordId = existingRev.id
+          // Mesclar dados sem sobrescrever dados preenchidos com valores vazios
+          const updatePayload: Record<string, any> = {
+            nome: g.nome || existingRev.nome,
+            segmento: segId || existingRev.segmento,
+            inside_sales: insideId || existingRev.inside_sales,
+            responsavel: respId || existingRev.responsavel,
+            canal_faturamento: canId || existingRev.canal_faturamento,
+            estado: estadoId || existingRev.estado,
+            cidade: g.cidade || existingRev.cidade,
+          }
+          if (g.codigo && !existingRev.codigo) {
+            updatePayload.codigo = g.codigo
+          }
+          await revendasService.update(existingRev.id, updatePayload)
+          revAtualizadas++
+        } else {
           const createdRev = await revendasService.create({
             codigo: g.codigo,
             nome: g.nome,
@@ -474,24 +596,76 @@ export const ImportWizard: React.FC = () => {
             cidade: g.cidade,
           })
           revendaRecordId = createdRev.id
+          if (g.codigo) revByCodigoMap.set(normalizeText(g.codigo), createdRev)
+          if (g.nome) revByNomeMap.set(normalizeText(g.nome), createdRev)
           revCriadas++
         }
 
-        // 3. Criar contatos da revenda
+        // 3. Criar ou mesclar contatos da revenda
         for (const c of g.contatos) {
           const cargoId = c.cargo ? await getOrCreate('cargos', c.cargo, cgMap) : undefined
-          await contatosService.create({
-            revenda: revendaRecordId,
-            nome: c.nome,
-            cargo: cargoId,
-            email: c.email,
-            email_secundario: c.emailSecundario,
-            telefone: c.telefone,
-            contato_principal: c.isPrincipal,
-            recebe_comunicacoes: true,
-            status_contato: 'Ativo',
-          })
-          contCriados++
+          const cNomeNorm = normalizeText(c.nome)
+          const cEmailNorm = normalizeText(c.email)
+
+          // Buscar se já existe contato para esta revenda com mesmo nome e email normalizados
+          let existingContact = contatosByFullKeyMap.get(
+            `${cNomeNorm}|||${revendaRecordId}|||${cEmailNorm}`,
+          )
+          if (!existingContact && cEmailNorm) {
+            existingContact = contatosByFullKeyMap.get(`*|||${revendaRecordId}|||${cEmailNorm}`)
+          }
+
+          if (existingContact) {
+            // ATUALIZAR registro existente mesclando campos vazios para não perder nada
+            const updateContatoPayload: Record<string, any> = {}
+
+            // Preencher cargo se o existente não tiver
+            if (!existingContact.cargo && cargoId) {
+              updateContatoPayload.cargo = cargoId
+            }
+            // Preencher email se o existente não tiver
+            if (!existingContact.email && c.email) {
+              updateContatoPayload.email = c.email
+            }
+            // Preencher email secundário
+            if (!existingContact.email_secundario && c.emailSecundario) {
+              updateContatoPayload.email_secundario = c.emailSecundario
+            }
+            // Preencher telefone
+            if (!existingContact.telefone && c.telefone) {
+              updateContatoPayload.telefone = c.telefone
+            }
+            // Manter ou marcar como principal
+            if (!existingContact.contato_principal && c.isPrincipal) {
+              updateContatoPayload.contato_principal = true
+            }
+
+            if (Object.keys(updateContatoPayload).length > 0) {
+              await contatosService.update(existingContact.id, updateContatoPayload)
+            }
+            contAtualizados++
+          } else {
+            // CRIAR novo contato
+            const createdContato = await contatosService.create({
+              revenda: revendaRecordId,
+              nome: c.nome,
+              cargo: cargoId,
+              email: c.email,
+              email_secundario: c.emailSecundario,
+              telefone: c.telefone,
+              contato_principal: c.isPrincipal,
+              recebe_comunicacoes: true,
+              status_contato: 'Ativo',
+            })
+            contatosByFullKeyMap.set(
+              `${cNomeNorm}|||${revendaRecordId}|||${cEmailNorm}`,
+              createdContato,
+            )
+            if (cEmailNorm) {
+              contatosByFullKeyMap.set(`*|||${revendaRecordId}|||${cEmailNorm}`, createdContato)
+            }
+            contCriados++
+          }
         }
       }
 
@@ -500,6 +674,7 @@ export const ImportWizard: React.FC = () => {
         revendasCriadas: revCriadas,
         revendasAtualizadas: revAtualizadas,
         contatosCriados: contCriados,
+        contatosAtualizados: contAtualizados,
         auxiliaresCriadas: auxCriadas,
         arquivo: fileName,
       })
@@ -508,6 +683,7 @@ export const ImportWizard: React.FC = () => {
         revendasCriadas: revCriadas,
         revendasAtualizadas: revAtualizadas,
         contatosCriados: contCriados,
+        contatosAtualizados: contAtualizados,
         auxiliaresCriadas: auxCriadas,
         descartados: 0,
       })
@@ -796,10 +972,20 @@ export const ImportWizard: React.FC = () => {
             </button>
             <button
               onClick={handleProcessAndValidate}
-              className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-1.5"
+              disabled={isValidatingDb}
+              className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-1.5 disabled:opacity-50"
             >
-              <span>Processar e Validar Dados</span>
-              <ArrowRight className="h-4 w-4" />
+              {isValidatingDb ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Cruzando dados com o banco...</span>
+                </>
+              ) : (
+                <>
+                  <span>Processar e Validar Dados</span>
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -809,22 +995,41 @@ export const ImportWizard: React.FC = () => {
       {currentStep === 4 && (
         <div className="space-y-5 animate-in fade-in">
           {/* CARDS DE RESUMO DA VALIDAÇÃO */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-blue-600 block">
-                Revendas Únicas
+                Revendas na Planilha
               </span>
               <span className="text-xl font-bold text-blue-900">
                 {validationSummary.totalRevendas}
               </span>
+              {validationSummary.revendasExistentes > 0 && (
+                <span className="text-[10px] text-blue-700 block mt-0.5">
+                  ({validationSummary.revendasExistentes} já no banco)
+                </span>
+              )}
             </div>
             <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-indigo-600 block">
-                Contatos Vinculados
+                Contatos na Planilha
               </span>
               <span className="text-xl font-bold text-indigo-900">
                 {validationSummary.totalContatos}
               </span>
+              {validationSummary.contatosExistentes > 0 && (
+                <span className="text-[10px] text-amber-700 font-bold block mt-0.5">
+                  ({validationSummary.contatosExistentes} serão atualizados)
+                </span>
+              )}
+            </div>
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <span className="text-[10px] uppercase font-bold text-emerald-600 block">
+                Novos Contatos
+              </span>
+              <span className="text-xl font-bold text-emerald-900">
+                {validationSummary.totalContatos - validationSummary.contatosExistentes}
+              </span>
+              <span className="text-[10px] text-emerald-700 block mt-0.5">Sem duplicar</span>
             </div>
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-amber-600 block">
@@ -869,14 +1074,23 @@ export const ImportWizard: React.FC = () => {
                       <span className="text-[11px] text-slate-500">
                         ({g.segmento} • {g.estado || 'Sem UF'})
                       </span>
+                      {g.isExisting ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+                          Já cadastrada — será atualizada
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          Nova revenda
+                        </span>
+                      )}
                     </div>
                     <span className="text-xs font-semibold text-slate-600">
                       {g.contatos.length} contato(s)
                     </span>
                   </div>
 
-                  {/* Contatos filhos */}
-                  <div className="mt-2 pl-4 border-l-2 border-blue-200 space-y-1">
+                  {/* Contatos filhos com indicação de duplicidade / atualização */}
+                  <div className="mt-2 pl-4 border-l-2 border-blue-200 space-y-1.5">
                     {g.contatos.map((c, cIdx) => (
                       <div
                         key={cIdx}
@@ -888,6 +1102,15 @@ export const ImportWizard: React.FC = () => {
                           {c.isPrincipal && (
                             <span className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.2 rounded font-bold">
                               Principal
+                            </span>
+                          )}
+                          {c.isExisting ? (
+                            <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-300 font-semibold px-1.5 py-0.5 rounded">
+                              Já cadastrado — será atualizado
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium px-1.5 py-0.5 rounded">
+                              Novo registro
                             </span>
                           )}
                         </div>
@@ -970,15 +1193,23 @@ export const ImportWizard: React.FC = () => {
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">
                     Contatos Criados
                   </span>
-                  <span className="font-bold text-blue-600 text-base">
+                  <span className="font-bold text-emerald-600 text-base">
                     {importReport.contatosCriados}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                    Contatos Atualizados
+                  </span>
+                  <span className="font-bold text-blue-600 text-base">
+                    {importReport.contatosAtualizados}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">
                     Tabelas Auxiliares
                   </span>
-                  <span className="font-bold text-emerald-600 text-base">
+                  <span className="font-bold text-slate-600 text-base">
                     +{importReport.auxiliaresCriadas}
                   </span>
                 </div>
