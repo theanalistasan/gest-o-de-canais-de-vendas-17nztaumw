@@ -293,7 +293,7 @@ export default function Layout() {
         {/* FOOTER */}
         <footer className="h-9 bg-white border-t border-slate-200 px-6 flex items-center justify-between text-[11px] text-slate-500 flex-shrink-0">
           <span>Gestão de Canais de Vendas & Revendas © {new Date().getFullYear()}</span>
-          <span>Versão 0.0.29 • Roland DG Brasil</span>
+          <span>Versão 0.0.30 • Roland DG Brasil</span>
         </footer>
       </div>
     </div>

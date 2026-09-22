@@ -13,10 +13,15 @@ import {
   X,
   Search,
   RotateCcw,
+  Eye,
+  EyeOff,
+  KeyRound,
+  CheckCircle2,
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { adminService, auxiliaresService } from '@/services/apiService'
+import { toast } from 'sonner'
 import { ImportWizard } from '@/components/admin/ImportWizard'
 import type {
   User,
@@ -81,6 +86,8 @@ export const AdministracaoScreen: React.FC = () => {
   const [isUsersLoading, setIsUsersLoading] = useState(false)
   const [isUserModalOpen, setIsUserModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
+  const [isSavingUser, setIsSavingUser] = useState(false)
   const [userFormData, setUserFormData] = useState({
     name: '',
     email: '',
@@ -162,32 +169,106 @@ export const AdministracaoScreen: React.FC = () => {
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault()
+    const trimmedName = userFormData.name.trim()
+    const trimmedEmail = userFormData.email.trim().toLowerCase()
+    const passwordVal = userFormData.password ? userFormData.password.trim() : ''
+
+    if (!trimmedName) {
+      toast.error('Informe o nome do usuário.')
+      return
+    }
+
+    if (!editingUser) {
+      if (!trimmedEmail) {
+        toast.error('Informe o e-mail do usuário.')
+        return
+      }
+      if (passwordVal.length < 8) {
+        toast.error('A senha deve ter no mínimo 8 caracteres.')
+        return
+      }
+    } else {
+      // Edição: se senha informada, validar tamanho mínimo
+      if (passwordVal && passwordVal.length < 8) {
+        toast.error('A nova senha deve ter no mínimo 8 caracteres.')
+        return
+      }
+    }
+
+    setIsSavingUser(true)
     try {
       if (editingUser) {
+        // Blindagem estrita: payload base sem propriedades de senha
         const payload: Record<string, unknown> = {
-          name: userFormData.name.trim(),
+          name: trimmedName,
           role: userFormData.role,
         }
-        if (userFormData.password) {
-          payload.password = userFormData.password
-          payload.passwordConfirm = userFormData.password
+
+        const willChangePassword = passwordVal.length >= 8
+
+        // Inclui password e passwordConfirm estritamente se não-vazio
+        if (willChangePassword) {
+          payload.password = passwordVal
+          payload.passwordConfirm = passwordVal
         }
+
         await adminService.updateUser(editingUser.id, payload)
+
+        // Registrar auditoria sem expor a senha em texto puro
+        await adminService.recordManualAudit(
+          willChangePassword ? 'ALTERAR_SENHA_USUARIO' : 'EDITAR_USUARIO',
+          `users/${editingUser.id}`,
+          {
+            email: editingUser.email,
+            name: trimmedName,
+            role: userFormData.role,
+            senha_alterada: willChangePassword,
+          },
+          {
+            email: editingUser.email,
+            name: editingUser.name,
+            role: editingUser.role,
+          },
+        )
+
+        if (willChangePassword) {
+          toast.success(`Senha e dados do usuário "${editingUser.email}" alterados com sucesso!`)
+        } else {
+          toast.success(`Dados do usuário "${editingUser.email}" salvos. Senha mantida.`)
+        }
       } else {
         await adminService.createUser({
-          email: userFormData.email.trim(),
-          name: userFormData.name.trim(),
+          email: trimmedEmail,
+          name: trimmedName,
           role: userFormData.role,
-          password: userFormData.password || 'Mudar@123',
-          passwordConfirm: userFormData.password || 'Mudar@123',
+          password: passwordVal,
+          passwordConfirm: passwordVal,
           emailVisibility: true,
         })
+
+        await adminService.recordManualAudit('CRIAR_USUARIO', `users/${trimmedEmail}`, {
+          email: trimmedEmail,
+          name: trimmedName,
+          role: userFormData.role,
+        })
+
+        toast.success(`Usuário "${trimmedEmail}" criado com sucesso!`)
       }
+
       setIsUserModalOpen(false)
+      setUserFormData({ name: '', email: '', role: 'consulta', password: '' })
+      setShowPassword(false)
       await loadUsers()
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      alert('Erro ao salvar usuário. Verifique se o e-mail é válido e único.')
+      const errorMsg =
+        err?.data?.data?.password?.message ||
+        err?.data?.data?.email?.message ||
+        err?.message ||
+        'Erro ao salvar usuário. Verifique se o e-mail é único e válido.'
+      toast.error(errorMsg)
+    } finally {
+      setIsSavingUser(false)
     }
   }
 
@@ -479,6 +560,7 @@ export const AdministracaoScreen: React.FC = () => {
             <button
               onClick={() => {
                 setEditingUser(null)
+                setShowPassword(false)
                 setUserFormData({ name: '', email: '', role: 'consulta', password: '' })
                 setIsUserModalOpen(true)
               }}
@@ -535,6 +617,7 @@ export const AdministracaoScreen: React.FC = () => {
                           <button
                             onClick={() => {
                               setEditingUser(u)
+                              setShowPassword(false)
                               setUserFormData({
                                 name: u.name || '',
                                 email: u.email || '',
@@ -543,6 +626,7 @@ export const AdministracaoScreen: React.FC = () => {
                               })
                               setIsUserModalOpen(true)
                             }}
+                            title="Editar usuário e redefinir senha"
                             className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded"
                           >
                             <Pencil className="h-4 w-4" />
@@ -1248,13 +1332,25 @@ export const AdministracaoScreen: React.FC = () => {
       {isUserModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 scale-in">
-            <div className="flex items-center justify-between pb-2 border-b">
-              <h3 className="text-sm font-bold text-slate-900">
-                {editingUser ? 'Editar Usuário' : 'Novo Usuário'}
-              </h3>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                  <KeyRound className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {editingUser ? 'Editar Usuário e Senha' : 'Novo Usuário do Sistema'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {editingUser
+                      ? 'Altere perfil, nome ou defina uma nova senha'
+                      : 'Cadastre credencial de acesso ao sistema'}
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => setIsUserModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -1269,7 +1365,7 @@ export const AdministracaoScreen: React.FC = () => {
                   value={userFormData.name}
                   onChange={(e) => setUserFormData({ ...userFormData, name: e.target.value })}
                   placeholder="Nome do operador..."
-                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 text-xs"
                 />
               </div>
 
@@ -1282,8 +1378,13 @@ export const AdministracaoScreen: React.FC = () => {
                   value={userFormData.email}
                   onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
                   placeholder="usuario@rolanddg.com.br"
-                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 disabled:bg-slate-100"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 disabled:bg-slate-100 text-xs"
                 />
+                {editingUser && (
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    O e-mail é o identificador único da conta e não pode ser alterado aqui.
+                  </span>
+                )}
               </div>
 
               <div>
@@ -1293,7 +1394,7 @@ export const AdministracaoScreen: React.FC = () => {
                   onChange={(e) =>
                     setUserFormData({ ...userFormData, role: e.target.value as any })
                   }
-                  className="w-full px-3 py-2 border rounded-lg bg-white"
+                  className="w-full px-3 py-2 border rounded-lg bg-white text-xs"
                 >
                   <option value="admin">Administrador (Acesso total)</option>
                   <option value="gestor">Gestor (Cadastros & Comunicações)</option>
@@ -1301,33 +1402,74 @@ export const AdministracaoScreen: React.FC = () => {
                 </select>
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Senha {editingUser ? '(Deixe em branco para manter a atual)' : '*'}
-                </label>
-                <input
-                  type="password"
-                  required={!editingUser}
-                  value={userFormData.password}
-                  onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
-                  placeholder="••••••••"
-                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
-                />
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block font-semibold text-slate-800">
+                    {editingUser ? 'Nova Senha' : 'Senha de Acesso'}
+                  </label>
+                  <span className="text-[10px] font-medium text-slate-500">
+                    {editingUser ? 'Opcional (min. 8 car.)' : 'Obrigatória (min. 8 car.)'}
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required={!editingUser}
+                    value={userFormData.password}
+                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                    placeholder={
+                      editingUser
+                        ? 'Deixe vazio para manter a senha atual'
+                        : 'Mínimo de 8 caracteres'
+                    }
+                    className="w-full pl-3 pr-9 py-2 border rounded-lg focus:outline-none focus:border-blue-500 bg-white text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    title={showPassword ? 'Ocultar senha' : 'Ver senha'}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+
+                {editingUser ? (
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    {userFormData.password.trim() ? (
+                      <span className="text-blue-700 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                        A senha deste usuário será redefinida ao salvar.
+                      </span>
+                    ) : (
+                      'Deixe em branco para preservar a senha atual sem qualquer modificação.'
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    A senha cadastrada permitirá o login imediato no sistema.
+                  </p>
+                )}
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2">
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
                 <button
                   type="button"
+                  disabled={isSavingUser}
                   onClick={() => setIsUserModalOpen(false)}
-                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg text-xs"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm"
+                  disabled={isSavingUser}
+                  className="px-5 py-2 font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm text-xs flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  Salvar
+                  {isSavingUser && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  <span>{editingUser ? 'Salvar Alterações' : 'Cadastrar Usuário'}</span>
                 </button>
               </div>
             </form>
