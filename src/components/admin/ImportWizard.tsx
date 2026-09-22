@@ -113,6 +113,7 @@ export const ImportWizard: React.FC = () => {
     contatosSemEmail: 0,
     emailsInvalidos: 0,
     codigosDuplicados: 0,
+    nomesIguaisInsideSales: 0,
   })
 
   // Etapa 5: Execução
@@ -196,22 +197,76 @@ export const ImportWizard: React.FC = () => {
 
     headers.forEach((h, idx) => {
       const lower = h.toLowerCase().trim()
-      if (lower.includes('segment') || lower.includes('seguim')) map.segmento = idx
-      else if (lower === 'cod' || lower.includes('código') || lower.includes('codigo'))
+
+      // 1. Inside Sales — deve ter prioridade máxima para nunca ser capturado como 'nome' ou 'contato'
+      if (lower.includes('inside') || lower.includes('sales') || lower === 'is') {
+        map.insideSales = idx
+      }
+      // 2. Segmento
+      else if (lower.includes('segment') || lower.includes('seguim')) {
+        map.segmento = idx
+      }
+      // 3. Código da Revenda
+      else if (lower === 'cod' || lower.includes('código') || lower.includes('codigo')) {
         map.codigo = idx
-      else if (lower === 'revenda' || lower.includes('razão') || lower.includes('fantasia'))
+      }
+      // 4. Revenda (Razão Social / Nome Fantasia)
+      else if (
+        lower === 'revenda' ||
+        lower.includes('revenda') ||
+        lower.includes('razão') ||
+        lower.includes('razao') ||
+        lower.includes('fantasia')
+      ) {
         map.revenda = idx
-      else if (lower === 'nome' || lower.includes('contato')) map.nomeContato = idx
-      else if (lower.includes('inside')) map.insideSales = idx
-      else if (lower.includes('canal') || lower.includes('faturamento')) map.canalFaturamento = idx
-      else if (lower.includes('responsável') || lower.includes('responsavel') || lower === 'd')
+      }
+      // 5. Canal Faturamento
+      else if (lower.includes('canal') || lower.includes('faturamento')) {
+        map.canalFaturamento = idx
+      }
+      // 6. Responsável Comercial
+      else if (
+        lower.includes('responsável') ||
+        lower.includes('responsavel') ||
+        lower === 'resp' ||
+        lower === 'rc'
+      ) {
         map.responsavel = idx
-      else if (lower.includes('cargo') || lower.includes('função')) map.cargo = idx
-      else if (lower.includes('estado') || lower === 'uf') map.estado = idx
-      else if (lower.includes('cidade') || lower.includes('munic')) map.cidade = idx
-      else if (lower.includes('mail') || lower.includes('e-mail')) map.email = idx
-      else if (lower.includes('tel') || lower.includes('cel') || lower.includes('fone'))
+      }
+      // 7. Cargo / Função
+      else if (lower.includes('cargo') || lower.includes('função') || lower.includes('funcao')) {
+        map.cargo = idx
+      }
+      // 8. Estado / UF
+      else if (lower.includes('estado') || lower === 'uf') {
+        map.estado = idx
+      }
+      // 9. Cidade / Município
+      else if (lower.includes('cidade') || lower.includes('munic')) {
+        map.cidade = idx
+      }
+      // 10. E-mail
+      else if (lower.includes('mail') || lower.includes('e-mail')) {
+        map.email = idx
+      }
+      // 11. Telefone / Celular / Whatsapp
+      else if (
+        lower.includes('tel') ||
+        lower.includes('cel') ||
+        lower.includes('fone') ||
+        lower.includes('whats')
+      ) {
         map.telefone = idx
+      }
+      // 12. Nome do Contato (somente colunas de contato ou nome que não sejam revenda/inside sales)
+      else if (
+        lower.includes('contato') ||
+        lower === 'nome' ||
+        lower.includes('nome do contato') ||
+        lower.includes('nome contato')
+      ) {
+        map.nomeContato = idx
+      }
     })
 
     setMapping(map)
@@ -331,6 +386,18 @@ export const ImportWizard: React.FC = () => {
 
         // Se há nome de contato nesta linha, adiciona ao grupo atual
         if (currentGroup && (rawNomeContato || primaryEmail)) {
+          const contatoIssues = [...emailIssues]
+          // Validação: verificar se o nome do contato é idêntico ao inside sales da revenda
+          if (
+            rawNomeContato &&
+            currentGroup.insideSales &&
+            normalizeText(rawNomeContato) === normalizeText(currentGroup.insideSales)
+          ) {
+            contatoIssues.push(
+              `Atenção: Nome do contato é idêntico ao Inside Sales (${currentGroup.insideSales})`,
+            )
+          }
+
           currentGroup.contatos.push({
             nome: rawNomeContato || 'Contato sem nome',
             cargo: rawCargo || undefined,
@@ -338,7 +405,7 @@ export const ImportWizard: React.FC = () => {
             emailSecundario: secondaryEmail || undefined,
             telefone: rawTel || undefined,
             isPrincipal: currentGroup.contatos.length === 0, // Primeiro contato é o principal
-            issues: emailIssues,
+            issues: contatoIssues,
           })
         }
       }
@@ -413,6 +480,13 @@ export const ImportWizard: React.FC = () => {
       }
 
       const totalConts = groups.reduce((acc, g) => acc + g.contatos.length, 0)
+      const nomesIguaisInsideCount = groups.reduce(
+        (acc, g) =>
+          acc +
+          g.contatos.filter((c) => c.issues.some((iss) => iss.includes('idêntico ao Inside Sales')))
+            .length,
+        0,
+      )
 
       setProcessedGroups(groups)
       setValidationSummary({
@@ -423,6 +497,7 @@ export const ImportWizard: React.FC = () => {
         contatosSemEmail: semEmail,
         emailsInvalidos: emailsInv,
         codigosDuplicados: dupCodigos,
+        nomesIguaisInsideSales: nomesIguaisInsideCount,
       })
 
       setCurrentStep(4)
@@ -616,10 +691,21 @@ export const ImportWizard: React.FC = () => {
           }
 
           if (existingContact) {
-            // ATUALIZAR registro existente mesclando campos vazios para não perder nada
+            // ATUALIZAR registro existente no modo mesclagem:
+            // 1. Atualizar nome do contato se vier preenchido e diferente do existente
+            //    (permite corrigir contatos cujo nome anterior foi importado incorretamente)
             const updateContatoPayload: Record<string, any> = {}
 
-            // Preencher cargo se o existente não tiver
+            if (
+              c.nome &&
+              c.nome.trim() !== '' &&
+              c.nome.trim() !== '-' &&
+              normalizeText(existingContact.nome) !== normalizeText(c.nome)
+            ) {
+              updateContatoPayload.nome = c.nome.trim()
+            }
+
+            // Preencher cargo se o existente não tiver ou se atualizado
             if (!existingContact.cargo && cargoId) {
               updateContatoPayload.cargo = cargoId
             }
@@ -627,11 +713,11 @@ export const ImportWizard: React.FC = () => {
             if (!existingContact.email && c.email) {
               updateContatoPayload.email = c.email
             }
-            // Preencher email secundário
+            // Preencher email secundário se o existente não tiver
             if (!existingContact.email_secundario && c.emailSecundario) {
               updateContatoPayload.email_secundario = c.emailSecundario
             }
-            // Preencher telefone
+            // Preencher telefone se o existente não tiver
             if (!existingContact.telefone && c.telefone) {
               updateContatoPayload.telefone = c.telefone
             }
@@ -995,7 +1081,7 @@ export const ImportWizard: React.FC = () => {
       {currentStep === 4 && (
         <div className="space-y-5 animate-in fade-in">
           {/* CARDS DE RESUMO DA VALIDAÇÃO */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-blue-600 block">
                 Revendas na Planilha
@@ -1047,7 +1133,48 @@ export const ImportWizard: React.FC = () => {
                 {validationSummary.emailsInvalidos}
               </span>
             </div>
+            <div
+              className={`p-3 rounded-xl border ${
+                validationSummary.nomesIguaisInsideSales > 0
+                  ? 'bg-amber-50 border-amber-300'
+                  : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <span
+                className={`text-[10px] uppercase font-bold block ${
+                  validationSummary.nomesIguaisInsideSales > 0 ? 'text-amber-700' : 'text-slate-500'
+                }`}
+              >
+                Nome = Inside Sales
+              </span>
+              <span
+                className={`text-xl font-bold ${
+                  validationSummary.nomesIguaisInsideSales > 0 ? 'text-amber-900' : 'text-slate-700'
+                }`}
+              >
+                {validationSummary.nomesIguaisInsideSales}
+              </span>
+              {validationSummary.nomesIguaisInsideSales > 0 && (
+                <span className="text-[10px] text-amber-700 block mt-0.5">Verificar coluna</span>
+              )}
+            </div>
           </div>
+
+          {validationSummary.nomesIguaisInsideSales > 0 && (
+            <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">
+                  Possível divergência no mapeamento da coluna "Nome do Contato"
+                </p>
+                <p className="text-amber-800 text-[11px] mt-0.5">
+                  Foram identificados {validationSummary.nomesIguaisInsideSales} contato(s) cujo
+                  nome é idêntico ao Inside Sales da revenda. Verifique se na Etapa 2 a coluna
+                  mapeada como "Nome do Contato" não é na realidade a coluna de Inside Sales.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* LISTA DE REVENDAS E CONTATOS DETECTADOS */}
           <div className="border rounded-xl overflow-hidden">
@@ -1111,6 +1238,12 @@ export const ImportWizard: React.FC = () => {
                           ) : (
                             <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium px-1.5 py-0.5 rounded">
                               Novo registro
+                            </span>
+                          )}
+                          {c.issues.length > 0 && (
+                            <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                              <AlertTriangle className="h-3 w-3" />
+                              <span>{c.issues[0]}</span>
                             </span>
                           )}
                         </div>
