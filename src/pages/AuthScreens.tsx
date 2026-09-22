@@ -35,7 +35,7 @@ export const LoginScreen: React.FC = () => {
 
     setIsLoading(true)
     try {
-      await pb.collection('users').authWithPassword(email.trim(), password)
+      await pb.collection('users').authWithPassword(email.trim().toLowerCase(), password)
       navigate('/dashboard')
     } catch (err: unknown) {
       console.error('Falha no login:', err)
