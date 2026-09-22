@@ -104,9 +104,12 @@ export const HistoricoScreen: React.FC = () => {
       }
       if (searchGeral.trim()) {
         const q = searchGeral.toLowerCase().trim()
-        const matchCodigo = e.expand?.revenda?.codigo?.toLowerCase().includes(q)
-        const matchRevenda = e.expand?.revenda?.nome?.toLowerCase().includes(q)
-        const matchContato = e.expand?.contato?.nome?.toLowerCase().includes(q)
+        const codigoRev = (e.expand?.revenda?.codigo || e.codigo_revenda || '').toLowerCase()
+        const nomeRev = (e.expand?.revenda?.nome || e.nome_revenda || '').toLowerCase()
+        const nomeCont = (e.expand?.contato?.nome || e.nome_contato || '').toLowerCase()
+        const matchCodigo = codigoRev.includes(q)
+        const matchRevenda = nomeRev.includes(q)
+        const matchContato = nomeCont.includes(q)
         const matchEmail = e.email_utilizado?.toLowerCase().includes(q)
         const matchCampanha = e.expand?.campanha?.nome?.toLowerCase().includes(q)
         if (!matchCodigo && !matchRevenda && !matchContato && !matchEmail && !matchCampanha) {
@@ -318,9 +321,9 @@ export const HistoricoScreen: React.FC = () => {
         e.expand?.campanha?.expand?.usuario?.name ||
         e.expand?.campanha?.expand?.usuario?.email ||
         '',
-      revenda: e.expand?.revenda?.nome || '',
-      codigo_revenda: e.expand?.revenda?.codigo || '',
-      contato: e.expand?.contato?.nome || '',
+      revenda: e.expand?.revenda?.nome || e.nome_revenda || '',
+      codigo_revenda: e.expand?.revenda?.codigo || e.codigo_revenda || '',
+      contato: e.expand?.contato?.nome || e.nome_contato || '',
       email: e.email_utilizado || '',
       status: e.status,
       sucesso: e.sucesso ? 'Sim' : 'Não',
@@ -608,9 +611,9 @@ export const HistoricoScreen: React.FC = () => {
 
                     {/* Código Revenda */}
                     <td className="py-3 px-4 whitespace-nowrap">
-                      {env.expand?.revenda?.codigo ? (
+                      {env.expand?.revenda?.codigo || env.codigo_revenda ? (
                         <span className="font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                          {env.expand.revenda.codigo}
+                          {env.expand?.revenda?.codigo || env.codigo_revenda}
                         </span>
                       ) : (
                         <span className="text-slate-400 italic">—</span>
@@ -619,12 +622,12 @@ export const HistoricoScreen: React.FC = () => {
 
                     {/* Revenda */}
                     <td className="py-3 px-4 text-slate-700 font-medium">
-                      {env.expand?.revenda?.nome || '—'}
+                      {env.expand?.revenda?.nome || env.nome_revenda || '—'}
                     </td>
 
                     {/* Contato */}
                     <td className="py-3 px-4 text-slate-800 font-semibold">
-                      {env.expand?.contato?.nome || '—'}
+                      {env.expand?.contato?.nome || env.nome_contato || '—'}
                     </td>
 
                     {/* E-mail */}
@@ -834,7 +837,9 @@ export const HistoricoScreen: React.FC = () => {
                   <div>
                     <span className="font-semibold text-slate-500">Destinatário: </span>
                     <span className="font-medium break-words">
-                      {envioParaReenviar?.expand?.contato?.nome || 'Contato'}
+                      {envioParaReenviar?.expand?.contato?.nome ||
+                        envioParaReenviar?.nome_contato ||
+                        'Contato'}
                     </span>
                   </div>
                   <div>
@@ -932,7 +937,9 @@ export const HistoricoScreen: React.FC = () => {
                   <div>
                     <span className="font-semibold text-slate-500">Destinatário: </span>
                     <span className="font-medium break-words">
-                      {envioParaExcluir?.expand?.contato?.nome || 'Contato'}
+                      {envioParaExcluir?.expand?.contato?.nome ||
+                        envioParaExcluir?.nome_contato ||
+                        'Contato'}
                     </span>
                   </div>
                   <div>
@@ -1095,7 +1102,7 @@ export const HistoricoScreen: React.FC = () => {
                     Destinatário
                   </span>
                   <span className="font-semibold text-slate-800 break-words">
-                    {selectedEnvio.expand?.contato?.nome || '—'}
+                    {selectedEnvio.expand?.contato?.nome || selectedEnvio.nome_contato || '—'}
                   </span>
                 </div>
                 <div>
@@ -1103,11 +1110,12 @@ export const HistoricoScreen: React.FC = () => {
                     Revenda
                   </span>
                   <span className="font-semibold text-slate-800 break-words">
-                    {selectedEnvio.expand?.revenda?.nome || '—'}
+                    {selectedEnvio.expand?.revenda?.nome || selectedEnvio.nome_revenda || '—'}
                   </span>
-                  {selectedEnvio.expand?.revenda?.codigo && (
+                  {(selectedEnvio.expand?.revenda?.codigo || selectedEnvio.codigo_revenda) && (
                     <span className="block font-mono text-xs text-blue-700 font-semibold mt-0.5">
-                      Código: {selectedEnvio.expand.revenda.codigo}
+                      Código:{' '}
+                      {selectedEnvio.expand?.revenda?.codigo || selectedEnvio.codigo_revenda}
                     </span>
                   )}
                 </div>
@@ -1152,8 +1160,14 @@ export const HistoricoScreen: React.FC = () => {
                   </div>
                   <div className="border-t border-slate-200 pt-2 text-slate-700 whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed font-sans bg-white p-3 rounded-lg border max-h-60 overflow-y-auto">
                     {(selectedEnvio.expand?.campanha?.corpo || '')
-                      .replace(/{{nome}}/g, selectedEnvio.expand?.contato?.nome || '')
-                      .replace(/{{revenda}}/g, selectedEnvio.expand?.revenda?.nome || '')}
+                      .replace(
+                        /{{nome}}/g,
+                        selectedEnvio.expand?.contato?.nome || selectedEnvio.nome_contato || '',
+                      )
+                      .replace(
+                        /{{revenda}}/g,
+                        selectedEnvio.expand?.revenda?.nome || selectedEnvio.nome_revenda || '',
+                      )}
                   </div>
                 </div>
               </div>

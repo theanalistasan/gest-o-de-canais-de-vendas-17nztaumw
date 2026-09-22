@@ -52,8 +52,8 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
           continue
         }
 
-        let nomeContato = 'Prezado(a)'
-        let nomeRevenda = 'sua empresa'
+        let nomeContato = envio.getString('nome_contato') || 'Prezado(a)'
+        let nomeRevenda = envio.getString('nome_revenda') || 'sua empresa'
         try {
           const contatoId = envio.getString('contato')
           if (contatoId) {

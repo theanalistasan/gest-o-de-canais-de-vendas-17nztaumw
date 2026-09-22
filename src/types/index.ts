@@ -148,8 +148,11 @@ export interface Campanha {
 export interface Envio {
   id: string
   campanha: string
-  contato: string
-  revenda: string
+  contato?: string
+  revenda?: string
+  nome_contato?: string
+  nome_revenda?: string
+  codigo_revenda?: string
   email_utilizado?: string
   status: 'Pendente' | 'Enviado' | 'Erro' | 'Cancelado'
   data_envio?: string
