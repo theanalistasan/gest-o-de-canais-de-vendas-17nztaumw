@@ -146,7 +146,8 @@ export const contatosService = {
     const res = await pb.collection('contatos').getList<Contato>(page, perPage, {
       filter,
       sort,
-      expand: 'revenda,cargo,revenda.segmento,revenda.status',
+      expand:
+        'revenda,cargo,revenda.segmento,revenda.status,revenda.inside_sales,revenda.responsavel,revenda.canal_faturamento,revenda.estado',
     })
     return {
       items: res.items,
@@ -159,7 +160,8 @@ export const contatosService = {
     return pb.collection('contatos').getFullList<Contato>({
       filter,
       sort: 'nome',
-      expand: 'revenda,cargo,revenda.segmento,revenda.status',
+      expand:
+        'revenda,cargo,revenda.segmento,revenda.status,revenda.inside_sales,revenda.responsavel,revenda.canal_faturamento,revenda.estado',
     })
   },
 

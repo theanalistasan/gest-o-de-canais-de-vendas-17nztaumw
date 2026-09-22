@@ -124,6 +124,12 @@ export interface Contato {
   expand?: {
     revenda?: Revenda
     cargo?: Cargo
+    'revenda.inside_sales'?: InsideSales
+    'revenda.responsavel'?: Responsavel
+    'revenda.canal_faturamento'?: CanalFaturamento
+    'revenda.segmento'?: Segmento
+    'revenda.status'?: StatusRevenda
+    'revenda.estado'?: Estado
   }
 }
 
