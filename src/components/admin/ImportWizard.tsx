@@ -12,6 +12,7 @@ import {
   Table,
   Plus,
   Trash2,
+  XCircle,
 } from 'lucide-react'
 import { parseCSVString } from '@/lib/csvParser'
 import {
@@ -21,6 +22,7 @@ import {
   adminService,
 } from '@/services/apiService'
 import pb from '@/lib/pocketbase/client'
+import { getErrorMessage } from '@/lib/pocketbase/errors'
 
 interface FieldMapping {
   segmento: number // índice da coluna no arquivo
@@ -121,6 +123,7 @@ export const ImportWizard: React.FC = () => {
   const [importProgress, setImportProgress] = useState(0)
   const [importStatusText, setImportStatusText] = useState('')
   const [importCompleted, setImportCompleted] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
   const [importReport, setImportReport] = useState({
     revendasCriadas: 0,
     revendasAtualizadas: 0,
@@ -509,11 +512,49 @@ export const ImportWizard: React.FC = () => {
     }
   }
 
+  // Utilitário para aguardar com delay
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  // Executa uma operação no PocketBase com repetição automática (retry) em caso de 429 Too Many Requests
+  const executeWithRetry = async <T,>(
+    fn: () => Promise<T>,
+    maxRetries = 5,
+    initialDelay = 800,
+  ): Promise<T> => {
+    let attempt = 0
+    let delay = initialDelay
+    while (true) {
+      try {
+        return await fn()
+      } catch (err: any) {
+        attempt++
+        const status = err?.status || err?.response?.status || err?.statusCode
+        const isRateLimit =
+          status === 429 ||
+          (err?.message && String(err.message).toLowerCase().includes('too many requests'))
+        if (isRateLimit && attempt <= maxRetries) {
+          console.warn(
+            `[ImportWizard] Rate limit 429 detectado. Tentativa ${attempt} de ${maxRetries}. Aguardando ${delay}ms...`,
+          )
+          setImportStatusText(
+            `Aguardando liberação de requisições do servidor (${delay / 1000}s)...`,
+          )
+          await sleep(delay)
+          delay *= 1.8
+          continue
+        }
+        throw err
+      }
+    }
+  }
+
   // ETAPA 5: Gravar tudo no PocketBase com Blindagem contra Duplicatas (Upsert / Merge)
   const handleExecuteImport = async () => {
     setIsImporting(true)
+    setImportError(null)
     setImportProgress(0)
     setImportStatusText('Iniciando processamento no backend...')
+    setCurrentStep(5)
 
     let revCriadas = 0
     let revAtualizadas = 0
@@ -545,10 +586,12 @@ export const ImportWizard: React.FC = () => {
       // Status padrão "Ativa"
       let defaultStatusId = statMap.get('ATIVA') || stats[0]?.id
       if (!defaultStatusId) {
-        const createdSt = await auxiliaresService.createItem('status_revenda', {
-          nome: 'Ativa',
-          cor: '#16A34A',
-        })
+        const createdSt = await executeWithRetry(() =>
+          auxiliaresService.createItem('status_revenda', {
+            nome: 'Ativa',
+            cor: '#16A34A',
+          }),
+        )
         defaultStatusId = createdSt.id
         auxCriadas++
       }
@@ -560,9 +603,12 @@ export const ImportWizard: React.FC = () => {
         if (map.has(key)) return map.get(key)
 
         try {
-          const rec = await auxiliaresService.createItem(collection, { nome: name.trim() })
+          const rec = await executeWithRetry(() =>
+            auxiliaresService.createItem(collection, { nome: name.trim() }),
+          )
           map.set(key, rec.id)
           auxCriadas++
+          await sleep(60)
           return rec.id
         } catch (_) {
           return undefined
@@ -621,13 +667,16 @@ export const ImportWizard: React.FC = () => {
           } else {
             // Tenta criar estado se não existir
             try {
-              const newEst = await auxiliaresService.createItem('estados', {
-                nome: g.estado,
-                uf: g.estado.substring(0, 2).toUpperCase(),
-              })
+              const newEst = await executeWithRetry(() =>
+                auxiliaresService.createItem('estados', {
+                  nome: g.estado,
+                  uf: g.estado.substring(0, 2).toUpperCase(),
+                }),
+              )
               estMap.set(estKey, newEst.id)
               estadoId = newEst.id
               auxCriadas++
+              await sleep(60)
             } catch {
               /* intentionally ignored */
             }
@@ -656,25 +705,30 @@ export const ImportWizard: React.FC = () => {
           if (g.codigo && !existingRev.codigo) {
             updatePayload.codigo = g.codigo
           }
-          await revendasService.update(existingRev.id, updatePayload)
+          await executeWithRetry(() => revendasService.update(existingRev.id, updatePayload))
           revAtualizadas++
         } else {
-          const createdRev = await revendasService.create({
-            codigo: g.codigo,
-            nome: g.nome,
-            segmento: segId,
-            status: defaultStatusId,
-            inside_sales: insideId,
-            responsavel: respId,
-            canal_faturamento: canId,
-            estado: estadoId,
-            cidade: g.cidade,
-          })
+          const createdRev = await executeWithRetry(() =>
+            revendasService.create({
+              codigo: g.codigo,
+              nome: g.nome,
+              segmento: segId,
+              status: defaultStatusId,
+              inside_sales: insideId,
+              responsavel: respId,
+              canal_faturamento: canId,
+              estado: estadoId,
+              cidade: g.cidade,
+            }),
+          )
           revendaRecordId = createdRev.id
           if (g.codigo) revByCodigoMap.set(normalizeText(g.codigo), createdRev)
           if (g.nome) revByNomeMap.set(normalizeText(g.nome), createdRev)
           revCriadas++
         }
+
+        // Pequeno intervalo entre revendas para respeitar a cadência da API e da auditoria
+        await sleep(75)
 
         // 3. Criar ou mesclar contatos da revenda
         for (const c of g.contatos) {
@@ -727,22 +781,26 @@ export const ImportWizard: React.FC = () => {
             }
 
             if (Object.keys(updateContatoPayload).length > 0) {
-              await contatosService.update(existingContact.id, updateContatoPayload)
+              await executeWithRetry(() =>
+                contatosService.update(existingContact.id, updateContatoPayload),
+              )
             }
             contAtualizados++
           } else {
             // CRIAR novo contato
-            const createdContato = await contatosService.create({
-              revenda: revendaRecordId,
-              nome: c.nome,
-              cargo: cargoId,
-              email: c.email,
-              email_secundario: c.emailSecundario,
-              telefone: c.telefone,
-              contato_principal: c.isPrincipal,
-              recebe_comunicacoes: true,
-              status_contato: 'Ativo',
-            })
+            const createdContato = await executeWithRetry(() =>
+              contatosService.create({
+                revenda: revendaRecordId,
+                nome: c.nome,
+                cargo: cargoId,
+                email: c.email,
+                email_secundario: c.emailSecundario,
+                telefone: c.telefone,
+                contato_principal: c.isPrincipal,
+                recebe_comunicacoes: true,
+                status_contato: 'Ativo',
+              }),
+            )
             contatosByFullKeyMap.set(
               `${cNomeNorm}|||${revendaRecordId}|||${cEmailNorm}`,
               createdContato,
@@ -752,6 +810,9 @@ export const ImportWizard: React.FC = () => {
             }
             contCriados++
           }
+
+          // Intervalo para cadenciar a gravação de contatos
+          await sleep(65)
         }
       }
 
@@ -776,10 +837,12 @@ export const ImportWizard: React.FC = () => {
 
       setImportCompleted(true)
       setImportStatusText('Importação concluída com sucesso!')
-      setCurrentStep(5)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro na importação em lote:', err)
-      alert('Ocorreu um erro durante a importação. Verifique o console.')
+      const errorMsg =
+        getErrorMessage(err) || 'Erro inesperado durante o processamento dos registros.'
+      setImportError(errorMsg)
+      setImportStatusText(`Falha na importação: ${errorMsg}`)
     } finally {
       setIsImporting(false)
     }
@@ -1259,16 +1322,27 @@ export const ImportWizard: React.FC = () => {
           <div className="pt-4 flex items-center justify-between">
             <button
               onClick={() => setCurrentStep(3)}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+              disabled={isImporting}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50"
             >
               Voltar
             </button>
             <button
               onClick={handleExecuteImport}
-              className="px-6 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 flex items-center gap-2"
+              disabled={isImporting}
+              className="px-6 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 flex items-center gap-2 disabled:opacity-50"
             >
-              <CheckCircle2 className="h-4 w-4" />
-              <span>Confirmar e Importar no Banco de Dados</span>
+              {isImporting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Iniciando Importação...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Confirmar e Importar no Banco de Dados</span>
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -1291,6 +1365,43 @@ export const ImportWizard: React.FC = () => {
                 />
               </div>
               <span className="text-xs font-mono font-bold text-blue-600">{importProgress}%</span>
+            </div>
+          ) : importError ? (
+            <div className="space-y-4 max-w-lg mx-auto">
+              <div className="w-14 h-14 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+                <XCircle className="h-8 w-8" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Falha na Importação</h3>
+              <p className="text-xs text-slate-500">
+                Ocorreu uma falha durante o processo de gravação. Os dados gravados até o momento
+                foram preservados.
+              </p>
+
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-left text-xs text-rose-800 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block">Motivo do erro retornado pelo servidor:</span>
+                    <span className="font-mono text-[11px] break-words">{importError}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setCurrentStep(4)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all"
+                >
+                  Voltar para Validação
+                </button>
+                <button
+                  onClick={handleExecuteImport}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  <span>Tentar Novamente</span>
+                </button>
+              </div>
             </div>
           ) : importCompleted ? (
             <div className="space-y-4 max-w-md mx-auto">
@@ -1352,6 +1463,7 @@ export const ImportWizard: React.FC = () => {
                 onClick={() => {
                   setCurrentStep(1)
                   setImportCompleted(false)
+                  setImportError(null)
                   setRawRows([])
                 }}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all"
