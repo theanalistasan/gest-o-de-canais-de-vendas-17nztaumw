@@ -742,8 +742,8 @@ export const HistoricoScreen: React.FC = () => {
         open={!!envioParaReenviar}
         onOpenChange={(open) => !open && setEnvioParaReenviar(null)}
       >
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
+        <AlertDialogContent className="max-w-md max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+          <AlertDialogHeader className="px-6 pt-6 pb-2 shrink-0">
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${
                 envioParaReenviar?.status === 'Enviado'
@@ -762,6 +762,9 @@ export const HistoricoScreen: React.FC = () => {
                 ? 'Atenção: Destinatário já recebeu esta mensagem'
                 : 'Confirmar Reenvio de E-mail'}
             </AlertDialogTitle>
+          </AlertDialogHeader>
+
+          <div className="px-6 py-2 overflow-y-auto min-h-0 flex-1">
             <AlertDialogDescription asChild>
               <div className="text-xs text-slate-600 space-y-2.5 pt-1 text-left">
                 {envioParaReenviar?.status === 'Enviado' ? (
@@ -794,25 +797,25 @@ export const HistoricoScreen: React.FC = () => {
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
                   <div>
                     <span className="font-semibold text-slate-500">Destinatário: </span>
-                    <span className="font-medium">
+                    <span className="font-medium break-words">
                       {envioParaReenviar?.expand?.contato?.nome || 'Contato'}
                     </span>
                   </div>
                   <div>
                     <span className="font-semibold text-slate-500">E-mail: </span>
-                    <span className="font-mono text-blue-700 font-medium">
+                    <span className="font-mono text-blue-700 font-medium break-all">
                       {envioParaReenviar?.email_utilizado}
                     </span>
                   </div>
                   <div>
                     <span className="font-semibold text-slate-500">Campanha: </span>
-                    <span className="font-medium">
+                    <span className="font-medium break-words">
                       {envioParaReenviar?.expand?.campanha?.nome || 'Campanha'}
                     </span>
                   </div>
                   <div>
                     <span className="font-semibold text-slate-500">Assunto: </span>
-                    <span className="font-medium italic">
+                    <span className="font-medium italic break-words">
                       "{envioParaReenviar?.expand?.campanha?.assunto}"
                     </span>
                   </div>
@@ -821,9 +824,15 @@ export const HistoricoScreen: React.FC = () => {
                     <span className="font-medium">{envioParaReenviar?.status}</span>
                   </div>
                   {envioParaReenviar?.status === 'Erro' && envioParaReenviar?.mensagem_erro && (
-                    <div className="pt-1 text-[11px] text-red-600">
-                      <span className="font-semibold">Diagnóstico do último erro: </span>
-                      <span>{envioParaReenviar.mensagem_erro}</span>
+                    <div className="pt-2">
+                      <div className="bg-red-50 border border-red-200 rounded-md p-2.5 text-[11px] text-red-700 space-y-1">
+                        <span className="font-semibold block text-red-800">
+                          Diagnóstico do último erro:
+                        </span>
+                        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono leading-relaxed bg-white/70 p-2 rounded border border-red-100 max-h-40 overflow-y-auto">
+                          {envioParaReenviar.mensagem_erro}
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -834,8 +843,9 @@ export const HistoricoScreen: React.FC = () => {
                 </p>
               </div>
             </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="mt-2">
+          </div>
+
+          <AlertDialogFooter className="px-6 py-4 border-t border-slate-100 bg-slate-50/70 shrink-0 mt-0">
             <AlertDialogCancel disabled={!!reenviandoId} className="text-xs">
               Cancelar
             </AlertDialogCancel>
@@ -864,14 +874,17 @@ export const HistoricoScreen: React.FC = () => {
         open={!!envioParaExcluir}
         onOpenChange={(open) => !open && setEnvioParaExcluir(null)}
       >
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
+        <AlertDialogContent className="max-w-md max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+          <AlertDialogHeader className="px-6 pt-6 pb-2 shrink-0">
             <div className="w-10 h-10 rounded-full bg-red-100 text-red-700 flex items-center justify-center mb-2">
               <Trash2 className="h-5 w-5" />
             </div>
             <AlertDialogTitle className="text-base text-slate-900">
               Excluir Registro de Falha do Histórico?
             </AlertDialogTitle>
+          </AlertDialogHeader>
+
+          <div className="px-6 py-2 overflow-y-auto min-h-0 flex-1">
             <AlertDialogDescription asChild>
               <div className="text-xs text-slate-600 space-y-2.5 pt-1 text-left">
                 <p className="text-red-700 font-medium">
@@ -879,29 +892,33 @@ export const HistoricoScreen: React.FC = () => {
                   permanentemente removido da tabela de Histórico de Disparos.
                 </p>
 
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1.5 text-slate-800">
                   <div>
                     <span className="font-semibold text-slate-500">Destinatário: </span>
-                    <span className="font-medium">
+                    <span className="font-medium break-words">
                       {envioParaExcluir?.expand?.contato?.nome || 'Contato'}
                     </span>
                   </div>
                   <div>
                     <span className="font-semibold text-slate-500">E-mail: </span>
-                    <span className="font-mono text-blue-700 font-medium">
+                    <span className="font-mono text-blue-700 font-medium break-all">
                       {envioParaExcluir?.email_utilizado}
                     </span>
                   </div>
                   <div>
                     <span className="font-semibold text-slate-500">Campanha: </span>
-                    <span className="font-medium">
+                    <span className="font-medium break-words">
                       {envioParaExcluir?.expand?.campanha?.nome || 'Campanha'}
                     </span>
                   </div>
                   {envioParaExcluir?.mensagem_erro && (
-                    <div className="pt-1 text-[11px] text-red-600">
-                      <span className="font-semibold">Erro registrado: </span>
-                      <span className="truncate block">{envioParaExcluir.mensagem_erro}</span>
+                    <div className="pt-2">
+                      <div className="bg-red-50 border border-red-200 rounded-md p-2.5 text-[11px] text-red-700 space-y-1">
+                        <span className="font-semibold block text-red-800">Erro registrado:</span>
+                        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono leading-relaxed bg-white/70 p-2 rounded border border-red-100 max-h-40 overflow-y-auto">
+                          {envioParaExcluir.mensagem_erro}
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -912,8 +929,9 @@ export const HistoricoScreen: React.FC = () => {
                 </p>
               </div>
             </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="mt-2">
+          </div>
+
+          <AlertDialogFooter className="px-6 py-4 border-t border-slate-100 bg-slate-50/70 shrink-0 mt-0">
             <AlertDialogCancel disabled={!!excluindoId} className="text-xs">
               Cancelar
             </AlertDialogCancel>
@@ -933,43 +951,49 @@ export const HistoricoScreen: React.FC = () => {
 
       {/* MODAL SHADCN DE CONFIRMAÇÃO DE REENVIO EM LOTE */}
       <AlertDialog open={isLoteModalOpen} onOpenChange={setIsLoteModalOpen}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
+        <AlertDialogContent className="max-w-md max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+          <AlertDialogHeader className="px-6 pt-6 pb-2 shrink-0">
             <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-2">
               <RotateCw className="h-5 w-5" />
             </div>
             <AlertDialogTitle className="text-base text-slate-900">
               Reenviar Todos os Erros da Campanha?
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-slate-600 space-y-2 pt-1 text-left">
-              <span>
-                Esta ação reprocessará todos os envios que falharam para a campanha selecionada:
-              </span>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
-                <div>
-                  <span className="font-semibold text-slate-500">Campanha: </span>
-                  <span className="font-medium">
-                    {campanhas.find((c) => c.id === filterCampanha)?.nome || 'Campanha'}
-                  </span>
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-500">Quantidade com Erro: </span>
-                  <span className="font-bold text-red-600">
-                    {
-                      envios.filter((e) => e.campanha === filterCampanha && e.status === 'Erro')
-                        .length
-                    }{' '}
-                    destinatário(s)
-                  </span>
-                </div>
-              </div>
-              <p className="text-[11px] text-slate-500">
-                Cada destinatário será contactado individualmente via servidor SMTP. O histórico
-                refletirá o resultado real de cada disparo.
-              </p>
-            </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="mt-2">
+
+          <div className="px-6 py-2 overflow-y-auto min-h-0 flex-1">
+            <AlertDialogDescription asChild>
+              <div className="text-xs text-slate-600 space-y-2 pt-1 text-left">
+                <span>
+                  Esta ação reprocessará todos os envios que falharam para a campanha selecionada:
+                </span>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-slate-800">
+                  <div>
+                    <span className="font-semibold text-slate-500">Campanha: </span>
+                    <span className="font-medium break-words">
+                      {campanhas.find((c) => c.id === filterCampanha)?.nome || 'Campanha'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Quantidade com Erro: </span>
+                    <span className="font-bold text-red-600">
+                      {
+                        envios.filter((e) => e.campanha === filterCampanha && e.status === 'Erro')
+                          .length
+                      }{' '}
+                      destinatário(s)
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Cada destinatário será contactado individualmente via servidor SMTP. O histórico
+                  refletirá o resultado real de cada disparo.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </div>
+
+          <AlertDialogFooter className="px-6 py-4 border-t border-slate-100 bg-slate-50/70 shrink-0 mt-0">
             <AlertDialogCancel disabled={isReenviandoLote} className="text-xs">
               Cancelar
             </AlertDialogCancel>
@@ -989,9 +1013,9 @@ export const HistoricoScreen: React.FC = () => {
 
       {/* MODAL DETALHE DA COMUNICAÇÃO */}
       {selectedEnvio && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden scale-in">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden scale-in">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Detalhe do Envio Individual</h3>
                 <span className="text-[11px] text-slate-400 font-mono">ID: {selectedEnvio.id}</span>
@@ -1004,13 +1028,13 @@ export const HistoricoScreen: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto min-h-0 flex-1">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border text-xs">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">
                     Campanha
                   </span>
-                  <span className="font-semibold text-slate-800">
+                  <span className="font-semibold text-slate-800 break-words">
                     {selectedEnvio.expand?.campanha?.nome || '—'}
                   </span>
                 </div>
@@ -1034,7 +1058,7 @@ export const HistoricoScreen: React.FC = () => {
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">
                     Destinatário
                   </span>
-                  <span className="font-semibold text-slate-800">
+                  <span className="font-semibold text-slate-800 break-words">
                     {selectedEnvio.expand?.contato?.nome || '—'}
                   </span>
                 </div>
@@ -1042,7 +1066,7 @@ export const HistoricoScreen: React.FC = () => {
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">
                     Revenda
                   </span>
-                  <span className="font-semibold text-slate-800">
+                  <span className="font-semibold text-slate-800 break-words">
                     {selectedEnvio.expand?.revenda?.nome || '—'}
                   </span>
                   {selectedEnvio.expand?.revenda?.codigo && (
@@ -1055,16 +1079,18 @@ export const HistoricoScreen: React.FC = () => {
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">
                     E-mail Utilizado
                   </span>
-                  <span className="font-mono text-blue-700">
+                  <span className="font-mono text-blue-700 break-all">
                     {selectedEnvio.email_utilizado || '—'}
                   </span>
                 </div>
               </div>
 
               {selectedEnvio.erro && selectedEnvio.mensagem_erro && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 space-y-1">
                   <strong className="block font-semibold">Mensagem de Erro:</strong>
-                  {selectedEnvio.mensagem_erro}
+                  <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono text-[11px] bg-white/70 p-2.5 rounded-lg border border-red-100 max-h-48 overflow-y-auto leading-relaxed">
+                    {selectedEnvio.mensagem_erro}
+                  </div>
                 </div>
               )}
 
@@ -1084,77 +1110,77 @@ export const HistoricoScreen: React.FC = () => {
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
                   <div>
                     <span className="font-bold text-slate-700">Assunto: </span>
-                    <span className="text-slate-900">
+                    <span className="text-slate-900 break-words">
                       {selectedEnvio.expand?.campanha?.assunto}
                     </span>
                   </div>
-                  <div className="border-t border-slate-200 pt-2 text-slate-700 whitespace-pre-wrap leading-relaxed font-sans bg-white p-3 rounded-lg border">
+                  <div className="border-t border-slate-200 pt-2 text-slate-700 whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed font-sans bg-white p-3 rounded-lg border max-h-60 overflow-y-auto">
                     {(selectedEnvio.expand?.campanha?.corpo || '')
                       .replace(/{{nome}}/g, selectedEnvio.expand?.contato?.nome || '')
                       .replace(/{{revenda}}/g, selectedEnvio.expand?.revenda?.nome || '')}
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {/* Reenvio no modal de detalhes: disponível tanto para Erro quanto para Enviado */}
-                  {canWrite &&
-                    (selectedEnvio.status === 'Erro' || selectedEnvio.status === 'Enviado') && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const e = selectedEnvio
-                          setEnvioParaReenviar(e)
-                        }}
-                        disabled={reenviandoId === selectedEnvio.id}
-                        className={`px-4 py-2 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
-                          selectedEnvio.status === 'Enviado'
-                            ? 'bg-sky-600 hover:bg-sky-700'
-                            : 'bg-amber-600 hover:bg-amber-700'
-                        }`}
-                      >
-                        {reenviandoId === selectedEnvio.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RotateCw className="h-3.5 w-3.5" />
-                        )}
-                        <span>
-                          {selectedEnvio.status === 'Enviado'
-                            ? 'Reenviar Novamente'
-                            : 'Reenviar Mensagem'}
-                        </span>
-                      </button>
-                    )}
-
-                  {/* Lixeira no modal de detalhes: exclusiva para admin e apenas para Erro */}
-                  {isAdmin && selectedEnvio.status === 'Erro' && (
+            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
+              <div className="flex items-center gap-2">
+                {/* Reenvio no modal de detalhes: disponível tanto para Erro quanto para Enviado */}
+                {canWrite &&
+                  (selectedEnvio.status === 'Erro' || selectedEnvio.status === 'Enviado') && (
                     <button
                       type="button"
                       onClick={() => {
                         const e = selectedEnvio
-                        setEnvioParaExcluir(e)
+                        setEnvioParaReenviar(e)
                       }}
-                      disabled={excluindoId === selectedEnvio.id}
-                      className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                      disabled={reenviandoId === selectedEnvio.id}
+                      className={`px-4 py-2 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
+                        selectedEnvio.status === 'Enviado'
+                          ? 'bg-sky-600 hover:bg-sky-700'
+                          : 'bg-amber-600 hover:bg-amber-700'
+                      }`}
                     >
-                      {excluindoId === selectedEnvio.id ? (
+                      {reenviandoId === selectedEnvio.id ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <RotateCw className="h-3.5 w-3.5" />
                       )}
-                      <span>Excluir Falha</span>
+                      <span>
+                        {selectedEnvio.status === 'Enviado'
+                          ? 'Reenviar Novamente'
+                          : 'Reenviar Mensagem'}
+                      </span>
                     </button>
                   )}
-                </div>
 
-                <button
-                  onClick={() => setSelectedEnvio(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors"
-                >
-                  Fechar
-                </button>
+                {/* Lixeira no modal de detalhes: exclusiva para admin e apenas para Erro */}
+                {isAdmin && selectedEnvio.status === 'Erro' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const e = selectedEnvio
+                      setEnvioParaExcluir(e)
+                    }}
+                    disabled={excluindoId === selectedEnvio.id}
+                    className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  >
+                    {excluindoId === selectedEnvio.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                    <span>Excluir Falha</span>
+                  </button>
+                )}
               </div>
+
+              <button
+                onClick={() => setSelectedEnvio(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>
