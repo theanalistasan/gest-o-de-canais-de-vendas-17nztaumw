@@ -198,21 +198,21 @@ export const AdministracaoScreen: React.FC = () => {
     setIsSavingUser(true)
     try {
       if (editingUser) {
-        // Blindagem estrita: payload base sem propriedades de senha
+        const willChangePassword = passwordVal.length >= 8
+
+        // 1. Atualizar dados do perfil (name, role) via PATCH no registro
         const payload: Record<string, unknown> = {
           name: trimmedName,
           role: userFormData.role,
         }
-
-        const willChangePassword = passwordVal.length >= 8
-
-        // Inclui password e passwordConfirm estritamente se não-vazio
-        if (willChangePassword) {
-          payload.password = passwordVal
-          payload.passwordConfirm = passwordVal
-        }
-
         await adminService.updateUser(editingUser.id, payload)
+
+        // 2. Se nova senha informada, chamar rota administrativa dedicada
+        // (PocketBase exige oldPassword via PATCH de auth record para não-superusers,
+        // então usamos a rota /backend/v1/admin-users-set-password com $app superuser)
+        if (willChangePassword) {
+          await adminService.setUserPassword(editingUser.id, passwordVal)
+        }
 
         // Registrar auditoria sem expor a senha em texto puro
         await adminService.recordManualAudit(
@@ -262,6 +262,8 @@ export const AdministracaoScreen: React.FC = () => {
     } catch (err: any) {
       console.error(err)
       const errorMsg =
+        err?.data?.error ||
+        err?.response?.error ||
         err?.data?.data?.password?.message ||
         err?.data?.data?.email?.message ||
         err?.message ||

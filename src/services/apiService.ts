@@ -281,6 +281,19 @@ export const adminService = {
     return pb.collection('users').update<User>(id, data)
   },
 
+  async setUserPassword(
+    userId: string,
+    newPassword: string,
+  ): Promise<{ success: boolean; message: string; userId: string }> {
+    return pb.send<{ success: boolean; message: string; userId: string }>(
+      '/backend/v1/admin-users-set-password',
+      {
+        method: 'POST',
+        body: { userId, newPassword },
+      },
+    )
+  },
+
   async deleteUser(id: string): Promise<boolean> {
     return pb.collection('users').delete(id)
   },
