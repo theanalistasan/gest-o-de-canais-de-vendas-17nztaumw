@@ -40,7 +40,7 @@ import type {
 } from '@/types'
 
 export const ComunicacoesScreen: React.FC = () => {
-  const { user } = useAuth()
+  const { user, canWrite } = useAuth()
   const navigate = useNavigate()
 
   // Passo atual: 1 (Destinatários), 2 (Configuração), 3 (Revisão)
@@ -248,7 +248,7 @@ export const ComunicacoesScreen: React.FC = () => {
 
   // Salvar como Rascunho
   const handleSaveDraft = async () => {
-    if (!user) return
+    if (!user || !canWrite) return
     setIsSubmitting(true)
     try {
       await comunicacoesService.createCampanha({
@@ -274,7 +274,7 @@ export const ComunicacoesScreen: React.FC = () => {
 
   // Confirmar e Iniciar Envio
   const handleConfirmAndSend = async () => {
-    if (!user) return
+    if (!user || !canWrite) return
     if (destinatariosFinais.length === 0) {
       alert('Nenhum destinatário válido selecionado.')
       return
@@ -954,14 +954,18 @@ export const ComunicacoesScreen: React.FC = () => {
           </div>
 
           <div className="pt-4 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={isSubmitting}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
-            >
-              Salvar como Rascunho
-            </button>
+            {canWrite ? (
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={isSubmitting}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+              >
+                Salvar como Rascunho
+              </button>
+            ) : (
+              <div />
+            )}
 
             <button
               type="button"
@@ -1105,23 +1109,31 @@ export const ComunicacoesScreen: React.FC = () => {
               </button>
 
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleSaveDraft}
-                  disabled={isSubmitting}
-                  className="px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
-                >
-                  Salvar Rascunho
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsConfirmModalOpen(true)}
-                  disabled={isSubmitting}
-                  className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
-                >
-                  <Send className="h-4 w-4" />
-                  <span>Confirmar e Iniciar Disparo</span>
-                </button>
+                {canWrite ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleSaveDraft}
+                      disabled={isSubmitting}
+                      className="px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+                    >
+                      Salvar Rascunho
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmModalOpen(true)}
+                      disabled={isSubmitting}
+                      className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+                    >
+                      <Send className="h-4 w-4" />
+                      <span>Confirmar e Iniciar Disparo</span>
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-slate-500 italic bg-slate-100 px-3 py-2 rounded-lg border border-slate-200">
+                    Modo somente leitura (perfil Consulta): envio e rascunho desabilitados.
+                  </span>
+                )}
               </div>
             </div>
           </div>
