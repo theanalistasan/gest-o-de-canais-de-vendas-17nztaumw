@@ -1,14 +1,16 @@
 import React, { useState } from 'react'
 import { Navigate, useNavigate, Link } from 'react-router-dom'
-import { Mail, Lock, Loader2, ArrowRight } from 'lucide-react'
+import { Mail, Lock, Loader2, ArrowRight, Eye } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import pb from '@/lib/pocketbase/client'
+import { CONSULTA_AUTH_CONFIG } from '@/config/auth'
 
 export const LoginScreen: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isConsultaLoading, setIsConsultaLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const navigate = useNavigate()
 
@@ -117,7 +119,7 @@ export const LoginScreen: React.FC = () => {
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || isConsultaLoading}
               className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all shadow-md shadow-blue-500/20 disabled:opacity-60"
             >
               {isLoading ? (
@@ -133,6 +135,67 @@ export const LoginScreen: React.FC = () => {
               )}
             </button>
           </form>
+
+          {/* Divisor Visual */}
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase tracking-wider">
+              <span className="bg-white px-3 text-slate-400 font-medium">
+                Ou acesse sem digitar senha
+              </span>
+            </div>
+          </div>
+
+          {/* Botão de Acesso Apenas Visualização (Inside Sales / Consulta) */}
+          <div>
+            <button
+              type="button"
+              disabled={isLoading || isConsultaLoading}
+              onClick={async () => {
+                setErrorMsg('')
+                setIsConsultaLoading(true)
+                try {
+                  await pb
+                    .collection('users')
+                    .authWithPassword(
+                      CONSULTA_AUTH_CONFIG.email.trim().toLowerCase(),
+                      CONSULTA_AUTH_CONFIG.password,
+                    )
+                  navigate('/dashboard')
+                } catch (err: unknown) {
+                  console.error('Falha ao autenticar acesso de visualização:', err)
+                  setErrorMsg(
+                    'Não foi possível iniciar o acesso de visualização no momento. Tente novamente.',
+                  )
+                } finally {
+                  setIsConsultaLoading(false)
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-semibold border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-400/30 transition-all disabled:opacity-60 group shadow-sm"
+            >
+              {isConsultaLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-slate-600" />
+                  <span className="text-slate-700">Acessando como visualizador...</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="h-4 w-4 text-slate-600 group-hover:text-blue-600 transition-colors" />
+                  <span>Entrar apenas para visualização</span>
+                </>
+              )}
+            </button>
+
+            <p className="mt-2.5 text-center text-xs text-slate-500 leading-relaxed">
+              Ideal para consultas do dia a dia da equipe comercial.
+              <br />
+              <span className="text-[11px] text-slate-400">
+                A senha corporativa é exigida apenas para manutenções e alterações.
+              </span>
+            </p>
+          </div>
         </div>
       </div>
     </div>
