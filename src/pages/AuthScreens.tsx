@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Navigate, useNavigate, Link } from 'react-router-dom'
-import { Mail, Lock, Loader2, ArrowRight, ShieldCheck } from 'lucide-react'
+import { Mail, Lock, Loader2, ArrowRight } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import pb from '@/lib/pocketbase/client'
 
@@ -133,21 +133,6 @@ export const LoginScreen: React.FC = () => {
               )}
             </button>
           </form>
-          {/* Dica de Acesso Inicial */}
-          <div className="mt-6 pt-6 border-t border-slate-100 flex items-start gap-2.5 bg-blue-50/70 p-3 rounded-lg border-blue-100">
-            <ShieldCheck className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div className="text-xs text-slate-600 leading-relaxed">
-              <strong className="text-slate-800">Acessos Disponíveis:</strong>
-              <br />
-              <span className="text-slate-500">Admin: </span>
-              <code className="text-blue-700 font-mono">silvio.mattos@rolanddg.com.br</code> /{' '}
-              <code className="text-blue-700 font-mono">Skip@Pass</code>
-              <br />
-              <span className="text-slate-500">Consulta (somente leitura): </span>
-              <code className="text-blue-700 font-mono">rlddbr@780.local</code> /{' '}
-              <code className="text-blue-700 font-mono">RldDBR@780</code>
-            </div>
-          </div>{' '}
         </div>
       </div>
     </div>
