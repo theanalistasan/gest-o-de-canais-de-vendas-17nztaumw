@@ -248,7 +248,10 @@ export const ComunicacoesScreen: React.FC = () => {
 
   // Salvar como Rascunho
   const handleSaveDraft = async () => {
-    if (!user || !canWrite) return
+    if (!user || !canWrite) {
+      alert('Usuários com perfil Consulta não possuem permissão para salvar rascunhos.')
+      return
+    }
     setIsSubmitting(true)
     try {
       await comunicacoesService.createCampanha({
@@ -274,7 +277,10 @@ export const ComunicacoesScreen: React.FC = () => {
 
   // Confirmar e Iniciar Envio
   const handleConfirmAndSend = async () => {
-    if (!user || !canWrite) return
+    if (!user || !canWrite) {
+      alert('Usuários com perfil Consulta não possuem permissão para disparar comunicações.')
+      return
+    }
     if (destinatariosFinais.length === 0) {
       alert('Nenhum destinatário válido selecionado.')
       return
@@ -361,6 +367,20 @@ export const ComunicacoesScreen: React.FC = () => {
             </div>
           )}
         </div>
+
+        {!canWrite && (
+          <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3 text-amber-900 text-xs">
+            <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong className="block text-sm font-semibold mb-0.5">
+                Modo Consulta (Somente Leitura)
+              </strong>
+              Seu perfil de usuário possui acesso exclusivo de consulta. O envio de comunicações,
+              criação de disparos e salvamento de rascunhos estão estritamente bloqueados pela
+              aplicação e pelo servidor.
+            </div>
+          </div>
+        )}
 
         {/* STEPPER */}
         <div className="mt-5 grid grid-cols-3 gap-2">

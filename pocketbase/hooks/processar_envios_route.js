@@ -5,6 +5,20 @@ routerAdd(
   'POST',
   '/backend/v1/processar-envios',
   (e) => {
+    // Validação estrita de autorização server-side: perfil 'consulta' NÃO pode disparar envios
+    const authRecord = e.auth
+    if (!authRecord) {
+      return e.json(401, { success: false, error: 'Autenticação necessária.' })
+    }
+    const userRole = authRecord.getString('role')
+    if (userRole === 'consulta') {
+      return e.json(403, {
+        success: false,
+        error:
+          'Acesso negado: usuários com perfil Consulta não possuem permissão para disparar ou reprocessar comunicações.',
+      })
+    }
+
     let body = {}
     try {
       body = e.requestInfo().body || {}

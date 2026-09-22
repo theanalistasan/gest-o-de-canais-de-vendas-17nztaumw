@@ -126,7 +126,15 @@ export const HistoricoScreen: React.FC = () => {
 
   // Executar reenvio individual confirmado
   const handleConfirmReenviar = async () => {
-    if (!envioParaReenviar || !canWrite) return
+    if (!envioParaReenviar || !canWrite) {
+      toast({
+        title: 'Ação não permitida',
+        description:
+          'Usuários com perfil Consulta não possuem permissão para reenviar comunicações.',
+        variant: 'destructive',
+      })
+      return
+    }
     const alvo = envioParaReenviar
     setReenviandoId(alvo.id)
     setEnvioParaReenviar(null)
@@ -200,7 +208,14 @@ export const HistoricoScreen: React.FC = () => {
 
   // Executar exclusão de envio com falha (restrito a Admin)
   const handleConfirmExcluir = async () => {
-    if (!envioParaExcluir || !isAdmin) return
+    if (!envioParaExcluir || !isAdmin) {
+      toast({
+        title: 'Ação restrita',
+        description: 'Apenas Administradores podem excluir registros com falha do histórico.',
+        variant: 'destructive',
+      })
+      return
+    }
     const alvo = envioParaExcluir
     setExcluindoId(alvo.id)
     setEnvioParaExcluir(null)
@@ -235,7 +250,15 @@ export const HistoricoScreen: React.FC = () => {
 
   // Executar reenvio em lote de envios com erro da campanha selecionada
   const handleConfirmReenviarLote = async () => {
-    if (!canWrite || filterCampanha === 'all') return
+    if (!canWrite || filterCampanha === 'all') {
+      toast({
+        title: 'Ação não permitida',
+        description:
+          'Usuários com perfil Consulta não possuem permissão para reprocessar envios em lote.',
+        variant: 'destructive',
+      })
+      return
+    }
     setIsReenviandoLote(true)
     setIsLoteModalOpen(false)
 
@@ -366,6 +389,19 @@ export const HistoricoScreen: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
+      {!canWrite && (
+        <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 flex items-start gap-3 text-slate-700 text-xs">
+          <AlertTriangle className="h-5 w-5 text-slate-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="block text-sm font-semibold text-slate-800 mb-0.5">
+              Histórico em Modo de Consulta
+            </strong>
+            Você está visualizando o histórico com permissão exclusiva de leitura. As ações de
+            reenvio individual, reenvio em lote e exclusão estão desabilitadas para o seu perfil.
+          </div>
+        </div>
+      )}
+
       {/* CABEÇALHO */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
