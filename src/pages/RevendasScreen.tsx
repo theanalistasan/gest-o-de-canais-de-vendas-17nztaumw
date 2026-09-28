@@ -89,6 +89,7 @@ export const RevendasScreen: React.FC = () => {
     canal_faturamento: '',
     estado: '',
     cidade: '',
+    meta: '',
     observacoes: '',
   })
 
@@ -246,6 +247,7 @@ export const RevendasScreen: React.FC = () => {
         canal_faturamento: revenda.canal_faturamento || '',
         estado: revenda.estado || '',
         cidade: revenda.cidade || '',
+        meta: revenda.meta !== undefined && revenda.meta !== null ? String(revenda.meta) : '',
         observacoes: revenda.observacoes || '',
       })
     } else {
@@ -260,6 +262,7 @@ export const RevendasScreen: React.FC = () => {
         canal_faturamento: '',
         estado: '',
         cidade: '',
+        meta: '',
         observacoes: '',
       })
     }
@@ -320,6 +323,38 @@ export const RevendasScreen: React.FC = () => {
       return
     }
 
+    // Normalização para checagem de duplicidade
+    const norm = (s?: string) =>
+      (s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+
+    const novoCodigoNorm = norm(formData.codigo)
+    const novoNomeNorm = norm(formData.nome)
+
+    // Validação contra duplicidade no cadastro manual
+    const revendaDuplicada = revendas.find((r) => {
+      if (editingRevenda && r.id === editingRevenda.id) return false
+      const codigoMatch = novoCodigoNorm && r.codigo && norm(r.codigo) === novoCodigoNorm
+      const nomeMatch = novoNomeNorm && r.nome && norm(r.nome) === novoNomeNorm
+      return codigoMatch || nomeMatch
+    })
+
+    if (revendaDuplicada) {
+      const motivo =
+        novoCodigoNorm &&
+        revendaDuplicada.codigo &&
+        norm(revendaDuplicada.codigo) === novoCodigoNorm
+          ? `já existe uma revenda com o código "${revendaDuplicada.codigo}" (${revendaDuplicada.nome})`
+          : `já existe uma revenda com o nome "${revendaDuplicada.nome}"`
+      alert(
+        `Impossível cadastrar revenda duplicada: ${motivo}. Utilize a edição da revenda existente.`,
+      )
+      return
+    }
+
     setIsSaving(true)
     try {
       const payload: Partial<Revenda> = {
@@ -332,6 +367,8 @@ export const RevendasScreen: React.FC = () => {
         canal_faturamento: formData.canal_faturamento || undefined,
         estado: formData.estado || undefined,
         cidade: formData.cidade.trim() || undefined,
+        meta:
+          formData.meta !== '' && !isNaN(Number(formData.meta)) ? Number(formData.meta) : undefined,
         observacoes: formData.observacoes.trim() || undefined,
       }
 
@@ -379,6 +416,10 @@ export const RevendasScreen: React.FC = () => {
       canal_faturamento: r.expand?.canal_faturamento?.nome || '',
       estado: r.expand?.estado?.uf || '',
       cidade: r.cidade || '',
+      meta:
+        r.meta !== undefined && r.meta !== null
+          ? r.meta.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+          : 'Não definida',
       observacoes: r.observacoes || '',
     }))
 
@@ -392,6 +433,7 @@ export const RevendasScreen: React.FC = () => {
       { key: 'canal_faturamento', label: 'Canal Faturamento' },
       { key: 'estado', label: 'UF' },
       { key: 'cidade', label: 'Cidade' },
+      { key: 'meta', label: 'Meta (R$)' },
       { key: 'observacoes', label: 'Observações' },
     ])
   }
@@ -1218,6 +1260,22 @@ export const RevendasScreen: React.FC = () => {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Meta Financeira (R$) */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Meta de Vendas (R$)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.meta}
+                  onChange={(e) => setFormData({ ...formData, meta: e.target.value })}
+                  placeholder="Ex: 150000.00"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+                />
               </div>
 
               <div>

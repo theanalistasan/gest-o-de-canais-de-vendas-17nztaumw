@@ -285,6 +285,24 @@ export const ImportWizard: React.FC = () => {
       .trim()
   }
 
+  // Normalização agressiva para nomes de revenda (remove pontuações, espaços e sufixos societários comuns como ltda, me, eireli, sa, s/a, s.a.)
+  const normalizeRevendaNome = (text?: string): string => {
+    if (!text) return ''
+    let cleaned = normalizeText(text)
+    // Remove pontuações e símbolos
+    cleaned = cleaned.replace(/[^a-z0-9\s]/g, ' ')
+    // Remove sufixos societários em final de palavra
+    cleaned = cleaned.replace(/\b(ltda|me|epp|eireli|s\s*a|sa)\b/g, '')
+    // Remove todos os espaços para permitir match "SHOP SIGN" = "Shopsign"
+    return cleaned.replace(/\s+/g, '')
+  }
+
+  // Normalização de telefone/celular: apenas dígitos
+  const normalizePhone = (phone?: string): string => {
+    if (!phone) return ''
+    return phone.replace(/\D/g, '')
+  }
+
   // ETAPA 3 -> 4: Agrupamento em memória e checagem com o banco de dados contra duplicidade
   const handleProcessAndValidate = async () => {
     setIsValidatingDb(true)
@@ -423,25 +441,39 @@ export const ImportWizard: React.FC = () => {
         contatosService.getAll(),
       ])
 
-      // Mapa de revendas existentes por código normalizado e por nome normalizado
+      // Mapa de revendas existentes por código normalizado e por nome normalizado (robusto)
       const revByCodigo = new Map<string, (typeof existingRevendas)[0]>()
       const revByNome = new Map<string, (typeof existingRevendas)[0]>()
       for (const r of existingRevendas) {
         if (r.codigo) revByCodigo.set(normalizeText(r.codigo), r)
-        if (r.nome) revByNome.set(normalizeText(r.nome), r)
+        if (r.nome) {
+          revByNome.set(normalizeRevendaNome(r.nome), r)
+          revByNome.set(normalizeText(r.nome), r)
+        }
       }
 
-      // Mapa de contatos existentes por chave composta: nomeNorm|||revendaId|||emailNorm
-      // Também chave sem email: nomeNorm|||revendaId|||
-      const contatosByFullKey = new Map<string, (typeof existingContatos)[0]>()
+      // Mapas de contatos existentes com deduplicação multinível:
+      // 1. revendaId + email normalizado
+      // 2. revendaId + nome normalizado
+      // 3. revendaId + telefone (apenas dígitos)
+      const contatosByRevEmail = new Map<string, (typeof existingContatos)[0]>()
+      const contatosByRevNome = new Map<string, (typeof existingContatos)[0]>()
+      const contatosByRevPhone = new Map<string, (typeof existingContatos)[0]>()
+
       for (const c of existingContatos) {
-        const cNome = normalizeText(c.nome)
         const cRevId = c.revenda || ''
+        const cNome = normalizeText(c.nome)
         const cEmail = normalizeText(c.email)
-        contatosByFullKey.set(`${cNome}|||${cRevId}|||${cEmail}`, c)
-        if (cEmail) {
-          // Também indexar por email|||revId caso queira conferência cruzada
-          contatosByFullKey.set(`*|||${cRevId}|||${cEmail}`, c)
+        const cPhone = normalizePhone(c.telefone || c.celular || c.whatsapp)
+
+        if (cRevId && cEmail) {
+          contatosByRevEmail.set(`${cRevId}|||${cEmail}`, c)
+        }
+        if (cRevId && cNome) {
+          contatosByRevNome.set(`${cRevId}|||${cNome}`, c)
+        }
+        if (cRevId && cPhone && cPhone.length >= 8) {
+          contatosByRevPhone.set(`${cRevId}|||${cPhone}`, c)
         }
       }
 
@@ -451,7 +483,8 @@ export const ImportWizard: React.FC = () => {
       for (const g of groups) {
         let matchedRev = g.codigo ? revByCodigo.get(normalizeText(g.codigo)) : undefined
         if (!matchedRev && g.nome) {
-          matchedRev = revByNome.get(normalizeText(g.nome))
+          matchedRev =
+            revByNome.get(normalizeRevendaNome(g.nome)) || revByNome.get(normalizeText(g.nome))
         }
 
         if (matchedRev) {
@@ -465,13 +498,22 @@ export const ImportWizard: React.FC = () => {
         for (const c of g.contatos) {
           const cNome = normalizeText(c.nome)
           const cEmail = normalizeText(c.email)
+          const cPhone = normalizePhone(c.telefone)
 
-          let matchedContato = revIdForMatch
-            ? contatosByFullKey.get(`${cNome}|||${revIdForMatch}|||${cEmail}`)
-            : undefined
-
-          if (!matchedContato && revIdForMatch && cEmail) {
-            matchedContato = contatosByFullKey.get(`*|||${revIdForMatch}|||${cEmail}`)
+          let matchedContato = undefined
+          if (revIdForMatch) {
+            // 1. Match primário: revenda + email normalizado
+            if (cEmail) {
+              matchedContato = contatosByRevEmail.get(`${revIdForMatch}|||${cEmail}`)
+            }
+            // 2. Match secundário: revenda + nome normalizado
+            if (!matchedContato && cNome) {
+              matchedContato = contatosByRevNome.get(`${revIdForMatch}|||${cNome}`)
+            }
+            // 3. Match terciário: revenda + telefone (só dígitos)
+            if (!matchedContato && cPhone && cPhone.length >= 8) {
+              matchedContato = contatosByRevPhone.get(`${revIdForMatch}|||${cPhone}`)
+            }
           }
 
           if (matchedContato) {
@@ -626,17 +668,26 @@ export const ImportWizard: React.FC = () => {
       const revByNomeMap = new Map<string, (typeof dbRevendas)[0]>()
       for (const r of dbRevendas) {
         if (r.codigo) revByCodigoMap.set(normalizeText(r.codigo), r)
-        if (r.nome) revByNomeMap.set(normalizeText(r.nome), r)
+        if (r.nome) {
+          revByNomeMap.set(normalizeRevendaNome(r.nome), r)
+          revByNomeMap.set(normalizeText(r.nome), r)
+        }
       }
 
-      const contatosByFullKeyMap = new Map<string, (typeof dbContatos)[0]>()
+      const contatosByRevEmailMap = new Map<string, (typeof dbContatos)[0]>()
+      const contatosByRevNomeMap = new Map<string, (typeof dbContatos)[0]>()
+      const contatosByRevPhoneMap = new Map<string, (typeof dbContatos)[0]>()
+
       for (const c of dbContatos) {
-        const cNome = normalizeText(c.nome)
         const cRevId = c.revenda || ''
+        const cNome = normalizeText(c.nome)
         const cEmail = normalizeText(c.email)
-        contatosByFullKeyMap.set(`${cNome}|||${cRevId}|||${cEmail}`, c)
-        if (cEmail) {
-          contatosByFullKeyMap.set(`*|||${cRevId}|||${cEmail}`, c)
+        const cPhone = normalizePhone(c.telefone || c.celular || c.whatsapp)
+
+        if (cRevId && cEmail) contatosByRevEmailMap.set(`${cRevId}|||${cEmail}`, c)
+        if (cRevId && cNome) contatosByRevNomeMap.set(`${cRevId}|||${cNome}`, c)
+        if (cRevId && cPhone && cPhone.length >= 8) {
+          contatosByRevPhoneMap.set(`${cRevId}|||${cPhone}`, c)
         }
       }
 
@@ -683,29 +734,32 @@ export const ImportWizard: React.FC = () => {
           }
         }
 
-        // Verificar se revenda já existe por código normalizado ou nome
+        // Verificar se revenda já existe por código normalizado ou nome (robusto)
         let existingRev = g.codigo ? revByCodigoMap.get(normalizeText(g.codigo)) : undefined
         if (!existingRev && g.nome) {
-          existingRev = revByNomeMap.get(normalizeText(g.nome))
+          existingRev =
+            revByNomeMap.get(normalizeRevendaNome(g.nome)) ||
+            revByNomeMap.get(normalizeText(g.nome))
         }
 
         let revendaRecordId = ''
         if (existingRev) {
           revendaRecordId = existingRev.id
-          // Mesclar dados sem sobrescrever dados preenchidos com valores vazios
-          const updatePayload: Record<string, any> = {
-            nome: g.nome || existingRev.nome,
-            segmento: segId || existingRev.segmento,
-            inside_sales: insideId || existingRev.inside_sales,
-            responsavel: respId || existingRev.responsavel,
-            canal_faturamento: canId || existingRev.canal_faturamento,
-            estado: estadoId || existingRev.estado,
-            cidade: g.cidade || existingRev.cidade,
+          // Mesclar dados sem sobrescrever dados preenchidos com valores vazios (nunca substituir preenchido por vazio)
+          const updatePayload: Record<string, any> = {}
+
+          if (!existingRev.codigo && g.codigo) updatePayload.codigo = g.codigo
+          if (!existingRev.nome && g.nome) updatePayload.nome = g.nome
+          if (!existingRev.segmento && segId) updatePayload.segmento = segId
+          if (!existingRev.inside_sales && insideId) updatePayload.inside_sales = insideId
+          if (!existingRev.responsavel && respId) updatePayload.responsavel = respId
+          if (!existingRev.canal_faturamento && canId) updatePayload.canal_faturamento = canId
+          if (!existingRev.estado && estadoId) updatePayload.estado = estadoId
+          if (!existingRev.cidade && g.cidade) updatePayload.cidade = g.cidade
+
+          if (Object.keys(updatePayload).length > 0) {
+            await executeWithRetry(() => revendasService.update(existingRev.id, updatePayload))
           }
-          if (g.codigo && !existingRev.codigo) {
-            updatePayload.codigo = g.codigo
-          }
-          await executeWithRetry(() => revendasService.update(existingRev.id, updatePayload))
           revAtualizadas++
         } else {
           const createdRev = await executeWithRetry(() =>
@@ -723,7 +777,10 @@ export const ImportWizard: React.FC = () => {
           )
           revendaRecordId = createdRev.id
           if (g.codigo) revByCodigoMap.set(normalizeText(g.codigo), createdRev)
-          if (g.nome) revByNomeMap.set(normalizeText(g.nome), createdRev)
+          if (g.nome) {
+            revByNomeMap.set(normalizeRevendaNome(g.nome), createdRev)
+            revByNomeMap.set(normalizeText(g.nome), createdRev)
+          }
           revCriadas++
         }
 
@@ -735,31 +792,36 @@ export const ImportWizard: React.FC = () => {
           const cargoId = c.cargo ? await getOrCreate('cargos', c.cargo, cgMap) : undefined
           const cNomeNorm = normalizeText(c.nome)
           const cEmailNorm = normalizeText(c.email)
+          const cPhoneNorm = normalizePhone(c.telefone)
 
-          // Buscar se já existe contato para esta revenda com mesmo nome e email normalizados
-          let existingContact = contatosByFullKeyMap.get(
-            `${cNomeNorm}|||${revendaRecordId}|||${cEmailNorm}`,
-          )
-          if (!existingContact && cEmailNorm) {
-            existingContact = contatosByFullKeyMap.get(`*|||${revendaRecordId}|||${cEmailNorm}`)
+          // Buscar se já existe contato para esta revenda com match multinível:
+          let existingContact = undefined
+          if (cEmailNorm) {
+            existingContact = contatosByRevEmailMap.get(`${revendaRecordId}|||${cEmailNorm}`)
+          }
+          if (!existingContact && cNomeNorm) {
+            existingContact = contatosByRevNomeMap.get(`${revendaRecordId}|||${cNomeNorm}`)
+          }
+          if (!existingContact && cPhoneNorm && cPhoneNorm.length >= 8) {
+            existingContact = contatosByRevPhoneMap.get(`${revendaRecordId}|||${cPhoneNorm}`)
           }
 
           if (existingContact) {
-            // ATUALIZAR registro existente no modo mesclagem:
-            // 1. Atualizar nome do contato se vier preenchido e diferente do existente
-            //    (permite corrigir contatos cujo nome anterior foi importado incorretamente)
+            // ATUALIZAR registro existente no modo mesclagem estrita:
+            // Preencher SOMENTE campos vazios, NUNCA sobrescrever preenchido com vazio
             const updateContatoPayload: Record<string, any> = {}
 
             if (
+              (!existingContact.nome ||
+                existingContact.nome.trim() === '' ||
+                existingContact.nome.trim() === '-') &&
               c.nome &&
-              c.nome.trim() !== '' &&
-              c.nome.trim() !== '-' &&
-              normalizeText(existingContact.nome) !== normalizeText(c.nome)
+              c.nome.trim() !== ''
             ) {
               updateContatoPayload.nome = c.nome.trim()
             }
 
-            // Preencher cargo se o existente não tiver ou se atualizado
+            // Preencher cargo se o existente não tiver
             if (!existingContact.cargo && cargoId) {
               updateContatoPayload.cargo = cargoId
             }
@@ -775,7 +837,7 @@ export const ImportWizard: React.FC = () => {
             if (!existingContact.telefone && c.telefone) {
               updateContatoPayload.telefone = c.telefone
             }
-            // Manter ou marcar como principal
+            // Marcar como principal se o existente não for e este for
             if (!existingContact.contato_principal && c.isPrincipal) {
               updateContatoPayload.contato_principal = true
             }
@@ -801,12 +863,14 @@ export const ImportWizard: React.FC = () => {
                 status_contato: 'Ativo',
               }),
             )
-            contatosByFullKeyMap.set(
-              `${cNomeNorm}|||${revendaRecordId}|||${cEmailNorm}`,
-              createdContato,
-            )
             if (cEmailNorm) {
-              contatosByFullKeyMap.set(`*|||${revendaRecordId}|||${cEmailNorm}`, createdContato)
+              contatosByRevEmailMap.set(`${revendaRecordId}|||${cEmailNorm}`, createdContato)
+            }
+            if (cNomeNorm) {
+              contatosByRevNomeMap.set(`${revendaRecordId}|||${cNomeNorm}`, createdContato)
+            }
+            if (cPhoneNorm && cPhoneNorm.length >= 8) {
+              contatosByRevPhoneMap.set(`${revendaRecordId}|||${cPhoneNorm}`, createdContato)
             }
             contCriados++
           }
@@ -1143,7 +1207,7 @@ export const ImportWizard: React.FC = () => {
       {/* ==================== ETAPA 4: VALIDAÇÃO EM MEMÓRIA ==================== */}
       {currentStep === 4 && (
         <div className="space-y-5 animate-in fade-in">
-          {/* CARDS DE RESUMO DA VALIDAÇÃO */}
+          {/* CARDS DE RESUMO DA VALIDAÇÃO COM CONTADORES DE MESCLAGEM VS NOVO */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-blue-600 block">
@@ -1152,11 +1216,20 @@ export const ImportWizard: React.FC = () => {
               <span className="text-xl font-bold text-blue-900">
                 {validationSummary.totalRevendas}
               </span>
-              {validationSummary.revendasExistentes > 0 && (
-                <span className="text-[10px] text-blue-700 block mt-0.5">
-                  ({validationSummary.revendasExistentes} já no banco)
-                </span>
-              )}
+              <div className="text-[10px] text-blue-700 block mt-0.5 space-y-0.5">
+                <div>
+                  Novas:{' '}
+                  <strong>
+                    {validationSummary.totalRevendas - validationSummary.revendasExistentes}
+                  </strong>
+                </div>
+                {validationSummary.revendasExistentes > 0 && (
+                  <div className="text-indigo-800 font-medium">
+                    Já cadastradas: <strong>{validationSummary.revendasExistentes}</strong>{' '}
+                    (atualizar/mesclar)
+                  </div>
+                )}
+              </div>
             </div>
             <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-indigo-600 block">
@@ -1167,7 +1240,7 @@ export const ImportWizard: React.FC = () => {
               </span>
               {validationSummary.contatosExistentes > 0 && (
                 <span className="text-[10px] text-amber-700 font-bold block mt-0.5">
-                  ({validationSummary.contatosExistentes} serão atualizados)
+                  ({validationSummary.contatosExistentes} serão atualizados / mesclados)
                 </span>
               )}
             </div>
@@ -1266,11 +1339,11 @@ export const ImportWizard: React.FC = () => {
                       </span>
                       {g.isExisting ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800 border border-blue-200">
-                          Já cadastrada — será atualizada
+                          Já cadastrada — será atualizada (mesclagem)
                         </span>
                       ) : (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          Nova revenda
+                          Novo
                         </span>
                       )}
                     </div>
@@ -1296,11 +1369,11 @@ export const ImportWizard: React.FC = () => {
                           )}
                           {c.isExisting ? (
                             <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-300 font-semibold px-1.5 py-0.5 rounded">
-                              Já cadastrado — será atualizado
+                              Já cadastrado — será atualizado (mesclagem)
                             </span>
                           ) : (
                             <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium px-1.5 py-0.5 rounded">
-                              Novo registro
+                              Novo
                             </span>
                           )}
                           {c.issues.length > 0 && (
@@ -1416,7 +1489,7 @@ export const ImportWizard: React.FC = () => {
                 registrada.
               </p>
 
-              <div className="p-4 bg-slate-50 rounded-xl border grid grid-cols-2 gap-3 text-left text-xs">
+              <div className="p-4 bg-slate-50 rounded-xl border grid grid-cols-2 sm:grid-cols-3 gap-3 text-left text-xs">
                 <div>
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">
                     Revendas Criadas
@@ -1427,9 +1500,9 @@ export const ImportWizard: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">
-                    Revendas Atualizadas
+                    Revendas Atualizadas (Mescladas)
                   </span>
-                  <span className="font-bold text-slate-800 text-base">
+                  <span className="font-bold text-blue-800 text-base">
                     {importReport.revendasAtualizadas}
                   </span>
                 </div>
@@ -1443,10 +1516,18 @@ export const ImportWizard: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">
-                    Contatos Atualizados
+                    Contatos Atualizados (Mesclados)
                   </span>
                   <span className="font-bold text-blue-600 text-base">
                     {importReport.contatosAtualizados}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                    Duplicados Ignorados / Mesclados
+                  </span>
+                  <span className="font-bold text-amber-700 text-base">
+                    {importReport.revendasAtualizadas + importReport.contatosAtualizados}
                   </span>
                 </div>
                 <div>

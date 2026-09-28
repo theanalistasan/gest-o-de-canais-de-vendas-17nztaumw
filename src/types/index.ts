@@ -90,6 +90,7 @@ export interface Revenda {
   estado?: string
   cidade?: string
   observacoes?: string
+  meta?: number
   created: string
   updated: string
   // Expansões comuns
@@ -144,6 +145,7 @@ export interface Campanha {
   quantidade_destinatarios: number
   status: 'Rascunho' | 'Agendada' | 'Enviando' | 'Concluida' | 'Cancelada' | 'Erro'
   usuario: string
+  anexos?: string[]
   created: string
   updated: string
   expand?: {

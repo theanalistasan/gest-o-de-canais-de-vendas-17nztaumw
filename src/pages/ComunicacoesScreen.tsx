@@ -16,6 +16,8 @@ import {
   Loader2,
   X,
   Mail,
+  Paperclip,
+  Trash2,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import {
@@ -85,6 +87,8 @@ export const ComunicacoesScreen: React.FC = () => {
   const [testeQtd, setTesteQtd] = useState<number>(1)
   const [customTesteQtd, setCustomTesteQtd] = useState<string>('5')
   const [intervaloSegundos, setIntervaloSegundos] = useState<number>(10)
+  const [anexos, setAnexos] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Diagnóstico do Provedor de E-mail
   const [emailConfig, setEmailConfig] = useState<{
@@ -254,17 +258,25 @@ export const ComunicacoesScreen: React.FC = () => {
     }
     setIsSubmitting(true)
     try {
-      await comunicacoesService.createCampanha({
-        nome: nomeCampanha.trim() || `Rascunho ${new Date().toLocaleDateString('pt-BR')}`,
-        assunto: assunto.trim() || 'Sem assunto',
-        corpo: corpo.trim(),
-        remetente: selectedRemetente,
-        tipo_envio: tipoEnvio,
-        intervalo_segundos: intervaloSegundos,
-        quantidade_destinatarios: destinatariosFinais.length,
-        status: 'Rascunho',
-        usuario: user.id,
-      })
+      const formData = new FormData()
+      formData.append(
+        'nome',
+        nomeCampanha.trim() || `Rascunho ${new Date().toLocaleDateString('pt-BR')}`,
+      )
+      formData.append('assunto', assunto.trim() || 'Sem assunto')
+      formData.append('corpo', corpo.trim())
+      formData.append('remetente', selectedRemetente)
+      formData.append('tipo_envio', tipoEnvio)
+      formData.append('intervalo_segundos', String(intervaloSegundos))
+      formData.append('quantidade_destinatarios', String(destinatariosFinais.length))
+      formData.append('status', 'Rascunho')
+      formData.append('usuario', user.id)
+
+      for (const file of anexos) {
+        formData.append('anexos', file)
+      }
+
+      await comunicacoesService.createCampanha(formData)
       alert('Campanha salva como Rascunho com sucesso!')
       navigate('/historico')
     } catch (err) {
@@ -289,17 +301,22 @@ export const ComunicacoesScreen: React.FC = () => {
     setIsSubmitting(true)
     try {
       // 1. Criar a Campanha com status "Enviando"
-      const camp = await comunicacoesService.createCampanha({
-        nome: nomeCampanha.trim() || `Disparo ${assunto.substring(0, 30)}`,
-        assunto: assunto.trim(),
-        corpo: corpo.trim(),
-        remetente: selectedRemetente,
-        tipo_envio: tipoEnvio,
-        intervalo_segundos: intervaloSegundos,
-        quantidade_destinatarios: destinatariosFinais.length,
-        status: 'Enviando',
-        usuario: user.id,
-      })
+      const formData = new FormData()
+      formData.append('nome', nomeCampanha.trim() || `Disparo ${assunto.substring(0, 30)}`)
+      formData.append('assunto', assunto.trim())
+      formData.append('corpo', corpo.trim())
+      formData.append('remetente', selectedRemetente)
+      formData.append('tipo_envio', tipoEnvio)
+      formData.append('intervalo_segundos', String(intervaloSegundos))
+      formData.append('quantidade_destinatarios', String(destinatariosFinais.length))
+      formData.append('status', 'Enviando')
+      formData.append('usuario', user.id)
+
+      for (const file of anexos) {
+        formData.append('anexos', file)
+      }
+
+      const camp = await comunicacoesService.createCampanha(formData)
 
       // 2. Criar os registros individuais na fila `envios` com status "Pendente"
       // Cada contato recebe uma mensagem individual exclusiva
@@ -851,6 +868,107 @@ export const ComunicacoesScreen: React.FC = () => {
             />
           </div>
 
+          {/* UPLOAD DE ANEXOS */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Paperclip className="h-4 w-4 text-blue-600" />
+                <label className="text-xs font-bold text-slate-800">
+                  Arquivos Anexos (Opcional)
+                </label>
+                <span className="text-[11px] text-slate-500">
+                  (Até 5 arquivos, máx. 10MB cada: PDF, DOC/DOCX, XLS/XLSX, PNG, JPG)
+                </span>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || [])
+                  if (files.length === 0) return
+                  const validMimes = [
+                    'application/pdf',
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/vnd.ms-excel',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'image/png',
+                    'image/jpeg',
+                  ]
+                  const newAnexos = [...anexos]
+                  for (const f of files) {
+                    if (newAnexos.length >= 5) {
+                      alert('Limite máximo de 5 anexos por campanha atingido.')
+                      break
+                    }
+                    if (f.size > 10 * 1024 * 1024) {
+                      alert(`O arquivo "${f.name}" excede o tamanho máximo de 10MB.`)
+                      continue
+                    }
+                    if (
+                      validMimes.length > 0 &&
+                      !validMimes.includes(f.type) &&
+                      !f.name.match(/\.(pdf|docx?|xlsx?|png|jpe?g)$/i)
+                    ) {
+                      alert(
+                        `O formato do arquivo "${f.name}" não é permitido. Use PDF, DOC, DOCX, XLS, XLSX, PNG ou JPEG.`,
+                      )
+                      continue
+                    }
+                    newAnexos.push(f)
+                  }
+                  setAnexos(newAnexos)
+                  if (fileInputRef.current) fileInputRef.current.value = ''
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={anexos.length >= 5}
+                className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <Paperclip className="h-3.5 w-3.5" />
+                <span>Adicionar Arquivo</span>
+              </button>
+            </div>
+
+            {anexos.length > 0 ? (
+              <div className="space-y-1.5 pt-1">
+                {anexos.map((file, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200 text-xs"
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <FileText className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                      <span className="font-medium text-slate-800 truncate" title={file.name}>
+                        {file.name}
+                      </span>
+                      <span className="text-[11px] text-slate-400 flex-shrink-0">
+                        ({(file.size / 1024).toFixed(1)} KB)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAnexos(anexos.filter((_, i) => i !== idx))}
+                      className="text-slate-400 hover:text-red-600 p-1 rounded transition-colors"
+                      title="Remover arquivo"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400 italic">
+                Nenhum arquivo anexado a esta mensagem.
+              </p>
+            )}
+          </div>
+
           {/* MODO DE ENVIO & INTERVALO */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1080,6 +1198,34 @@ export const ComunicacoesScreen: React.FC = () => {
                   * Exemplo simulado com o primeiro destinatário da lista (
                   {destinatariosFinais[0]?.nome || 'Contato'}).
                 </p>
+
+                {/* Lista de anexos na revisão */}
+                <div className="border-t border-slate-200 pt-3">
+                  <span className="font-bold text-slate-700 text-xs block mb-1.5 flex items-center gap-1.5">
+                    <Paperclip className="h-3.5 w-3.5 text-blue-600" />
+                    <span>Anexos da Campanha ({anexos.length}):</span>
+                  </span>
+                  {anexos.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {anexos.map((f, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 p-1.5 px-2 bg-white rounded border border-slate-200 text-xs truncate"
+                        >
+                          <FileText className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                          <span className="truncate text-slate-700 font-medium" title={f.name}>
+                            {f.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400 flex-shrink-0">
+                            ({(f.size / 1024).toFixed(0)} KB)
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 italic">Sem anexos</span>
+                  )}
+                </div>
               </div>
             </div>
 

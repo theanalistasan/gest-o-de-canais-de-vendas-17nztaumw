@@ -175,9 +175,53 @@ routerAdd(
               subject: campAssunto,
               html: corpoFinal.replace(/\n/g, '<br/>'),
               headers: msgHeaders,
+              attachments: {},
             })
 
-            mailClient.send(msg)
+            // Anexos da campanha via filesystem
+            let fsys = null
+            const openedFiles = []
+            try {
+              let anexosNomes = []
+              try {
+                anexosNomes = camp.getStringSlice('anexos') || []
+              } catch (_) {
+                const single = camp.getString('anexos')
+                if (single) anexosNomes = [single]
+              }
+
+              if (anexosNomes && anexosNomes.length > 0) {
+                fsys = $app.newFilesystem()
+                const basePath = camp.baseFilesPath()
+                for (let a = 0; a < anexosNomes.length; a++) {
+                  const nomeArquivo = anexosNomes[a]
+                  if (!nomeArquivo) continue
+                  try {
+                    const fileKey = basePath + '/' + nomeArquivo
+                    const reader = fsys.getFile(fileKey)
+                    if (reader) {
+                      openedFiles.push(reader)
+                      msg.attachments[nomeArquivo] = reader
+                    }
+                  } catch (attachErr) {
+                    console.log('Erro ao anexar arquivo ' + nomeArquivo + ': ' + attachErr)
+                  }
+                }
+              }
+
+              mailClient.send(msg)
+            } finally {
+              for (let o = 0; o < openedFiles.length; o++) {
+                try {
+                  openedFiles[o].close()
+                } catch (_) {}
+              }
+              if (fsys) {
+                try {
+                  fsys.close()
+                } catch (_) {}
+              }
+            }
 
             envio.set('status', 'Enviado')
             envio.set('sucesso', true)

@@ -15,6 +15,8 @@ import {
   Search,
   Trash2,
   AlertTriangle,
+  Paperclip,
+  FileText,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { comunicacoesService } from '@/services/apiService'
@@ -594,9 +596,20 @@ export const HistoricoScreen: React.FC = () => {
                   <tr key={env.id} className="hover:bg-slate-50/80 transition-colors">
                     {/* Campanha */}
                     <td className="py-3 px-4 max-w-[200px]">
-                      <span className="font-semibold text-slate-900 block truncate">
-                        {env.expand?.campanha?.nome || 'Campanha'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-slate-900 truncate">
+                          {env.expand?.campanha?.nome || 'Campanha'}
+                        </span>
+                        {env.expand?.campanha?.anexos && env.expand.campanha.anexos.length > 0 && (
+                          <span
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold flex-shrink-0"
+                            title={`${env.expand.campanha.anexos.length} anexo(s) nesta campanha`}
+                          >
+                            <Paperclip className="h-2.5 w-2.5" />
+                            <span>{env.expand.campanha.anexos.length}</span>
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[11px] text-slate-500 truncate block">
                         {env.expand?.campanha?.assunto || '—'}
                       </span>
@@ -1168,6 +1181,53 @@ export const HistoricoScreen: React.FC = () => {
                         /{{revenda}}/g,
                         selectedEnvio.expand?.revenda?.nome || selectedEnvio.nome_revenda || '',
                       )}
+                  </div>
+
+                  {/* Detalhes dos Anexos no modal */}
+                  <div className="border-t border-slate-200 pt-2">
+                    <span className="font-bold text-slate-700 text-xs block mb-1 flex items-center gap-1.5">
+                      <Paperclip className="h-3.5 w-3.5 text-blue-600" />
+                      <span>
+                        Anexos da Campanha ({selectedEnvio.expand?.campanha?.anexos?.length || 0}):
+                      </span>
+                    </span>
+                    {selectedEnvio.expand?.campanha?.anexos &&
+                    selectedEnvio.expand.campanha.anexos.length > 0 ? (
+                      <div className="space-y-1">
+                        {selectedEnvio.expand.campanha.anexos.map(
+                          (filename: string, idx: number) => {
+                            const fileUrl = `${(import.meta as unknown as { env: { VITE_POCKETBASE_URL?: string } }).env.VITE_POCKETBASE_URL || ''}/api/files/campanhas/${selectedEnvio.expand?.campanha?.id}/${filename}`
+                            return (
+                              <div
+                                key={idx}
+                                className="flex items-center justify-between p-1.5 px-2 bg-white rounded border border-slate-200 text-xs"
+                              >
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <FileText className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                                  <span
+                                    className="truncate text-slate-700 font-medium"
+                                    title={filename}
+                                  >
+                                    {filename}
+                                  </span>
+                                </div>
+                                <a
+                                  href={fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 text-[11px] font-semibold flex items-center gap-1 flex-shrink-0 ml-2"
+                                >
+                                  <Download className="h-3 w-3" />
+                                  <span>Baixar</span>
+                                </a>
+                              </div>
+                            )
+                          },
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 italic">Nenhum anexo</span>
+                    )}
                   </div>
                 </div>
               </div>

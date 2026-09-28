@@ -189,11 +189,11 @@ export const contatosService = {
 // ==================== CAMPANHAS E ENVIOS ====================
 
 export const comunicacoesService = {
-  async createCampanha(data: Partial<Campanha>): Promise<Campanha> {
+  async createCampanha(data: Partial<Campanha> | FormData): Promise<Campanha> {
     return pb.collection('campanhas').create<Campanha>(data)
   },
 
-  async updateCampanha(id: string, data: Partial<Campanha>): Promise<Campanha> {
+  async updateCampanha(id: string, data: Partial<Campanha> | FormData): Promise<Campanha> {
     return pb.collection('campanhas').update<Campanha>(id, data)
   },
 

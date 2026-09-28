@@ -147,6 +147,33 @@ export const RevendaDetailScreen: React.FC = () => {
       return
     }
 
+    // Normalização para checagem de duplicidade de contato na mesma revenda
+    const norm = (s?: string) =>
+      (s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+
+    const novoNomeNorm = norm(formData.nome)
+    const novoEmailNorm = norm(formData.email)
+
+    const contatoDuplicado = contatos.find((c) => {
+      if (editingContato && c.id === editingContato.id) return false
+      const nomeMatch = novoNomeNorm && norm(c.nome) === novoNomeNorm
+      const emailMatch = novoEmailNorm && c.email && norm(c.email) === novoEmailNorm
+      return nomeMatch || emailMatch
+    })
+
+    if (contatoDuplicado) {
+      const motivo =
+        novoEmailNorm && contatoDuplicado.email && norm(contatoDuplicado.email) === novoEmailNorm
+          ? `já existe um contato nesta revenda com o e-mail "${contatoDuplicado.email}" (${contatoDuplicado.nome})`
+          : `já existe um contato nesta revenda com o nome "${contatoDuplicado.nome}"`
+      alert(`Impossível cadastrar contato duplicado na mesma revenda: ${motivo}.`)
+      return
+    }
+
     setIsSaving(true)
     try {
       const payload: Partial<Contato> = {
@@ -267,7 +294,7 @@ export const RevendaDetailScreen: React.FC = () => {
         </div>
 
         {/* ATRIBUTOS COMERCIAIS */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
           <div>
             <span className="text-[10px] uppercase font-bold text-slate-400 block">
               Inside Sales
@@ -290,6 +317,16 @@ export const RevendaDetailScreen: React.FC = () => {
             </span>
             <span className="font-semibold text-slate-800">
               {revenda.expand?.canal_faturamento?.nome || '—'}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-emerald-600 block">
+              Meta de Vendas
+            </span>
+            <span className="font-bold text-slate-900">
+              {revenda.meta !== undefined && revenda.meta !== null
+                ? revenda.meta.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                : 'Não definida'}
             </span>
           </div>
         </div>

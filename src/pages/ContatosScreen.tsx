@@ -105,6 +105,12 @@ export const ContatosScreen: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingContato, setEditingContato] = useState<Contato | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+
+  // Modal Edição Rápida de Meta Financeira da Revenda
+  const [metaModalOpen, setMetaModalOpen] = useState(false)
+  const [metaModalRevenda, setMetaModalRevenda] = useState<Revenda | null>(null)
+  const [metaModalValue, setMetaModalValue] = useState('')
+  const [isSavingMeta, setIsSavingMeta] = useState(false)
   const [formData, setFormData] = useState({
     revenda: '',
     nome: '',
@@ -467,6 +473,7 @@ export const ContatosScreen: React.FC = () => {
     badgeText?: string
     detailInfo?: string
     linkTo?: string
+    meta?: number
     distinctRevendasCount: number
     contatos: Contato[]
     isUnassigned?: boolean
@@ -519,6 +526,7 @@ export const ContatosScreen: React.FC = () => {
       } else {
         // 'revenda'
         gId = info.revendaId
+        let metaVal: number | undefined = undefined
         if (info.revendaId === 'sem_revenda' || !info.rev) {
           gTitle = 'Contatos sem Revenda Vinculada'
           isUnassigned = true
@@ -528,6 +536,7 @@ export const ContatosScreen: React.FC = () => {
           badgeText = info.segmentoNome || undefined
           detailInfo = [info.revendaCidade, info.estadoUf].filter(Boolean).join(' / ') || undefined
           linkTo = `/revendas/${info.revendaId}`
+          metaVal = info.rev.meta
         }
       }
 
@@ -540,6 +549,7 @@ export const ContatosScreen: React.FC = () => {
           badgeText,
           detailInfo,
           linkTo,
+          meta: groupBy === 'revenda' && info.rev ? info.rev.meta : undefined,
           distinctRevendasCount: 0,
           contatos: [],
           isUnassigned,
@@ -677,6 +687,34 @@ export const ContatosScreen: React.FC = () => {
     }
     if (!formData.revenda) {
       alert('Vincule o contato a uma revenda.')
+      return
+    }
+
+    // Normalização para checagem de duplicidade de contato na mesma revenda
+    const norm = (s?: string) =>
+      (s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+
+    const novoNomeNorm = norm(formData.nome)
+    const novoEmailNorm = norm(formData.email)
+
+    const contatoDuplicado = contatos.find((c) => {
+      if (editingContato && c.id === editingContato.id) return false
+      if (c.revenda !== formData.revenda) return false
+      const nomeMatch = novoNomeNorm && norm(c.nome) === novoNomeNorm
+      const emailMatch = novoEmailNorm && c.email && norm(c.email) === novoEmailNorm
+      return nomeMatch || emailMatch
+    })
+
+    if (contatoDuplicado) {
+      const motivo =
+        novoEmailNorm && contatoDuplicado.email && norm(contatoDuplicado.email) === novoEmailNorm
+          ? `já existe um contato nesta revenda com o e-mail "${contatoDuplicado.email}" (${contatoDuplicado.nome})`
+          : `já existe um contato nesta revenda com o nome "${contatoDuplicado.nome}"`
+      alert(`Impossível cadastrar contato duplicado na mesma revenda: ${motivo}.`)
       return
     }
 
@@ -1683,6 +1721,42 @@ export const ContatosScreen: React.FC = () => {
                                 </span>
                               )}
 
+                              {/* Meta Financeira no cabeçalho do grupo Revenda */}
+                              {groupBy === 'revenda' && !group.isUnassigned && (
+                                <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-200 text-[11px]">
+                                  <span className="font-medium text-emerald-700">Meta:</span>
+                                  <span className="font-bold">
+                                    {group.meta !== undefined && group.meta !== null
+                                      ? group.meta.toLocaleString('pt-BR', {
+                                          style: 'currency',
+                                          currency: 'BRL',
+                                        })
+                                      : 'Não definida'}
+                                  </span>
+                                  {canWrite && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const rev = revendaMap.get(group.groupId)
+                                        if (rev) {
+                                          setMetaModalRevenda(rev)
+                                          setMetaModalValue(
+                                            rev.meta !== undefined && rev.meta !== null
+                                              ? String(rev.meta)
+                                              : '',
+                                          )
+                                          setMetaModalOpen(true)
+                                        }
+                                      }}
+                                      title="Editar Meta de Vendas"
+                                      className="p-0.5 text-emerald-700 hover:text-emerald-900 rounded transition-colors"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
                               <span className="text-[11px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-full border border-slate-200 shadow-2xs">
                                 {group.contatos.length}{' '}
                                 {group.contatos.length === 1 ? 'contato' : 'contatos'}
@@ -2231,6 +2305,97 @@ export const ContatosScreen: React.FC = () => {
                   className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition-all disabled:opacity-50"
                 >
                   {isSaving ? 'Salvando...' : 'Salvar Contato'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL COMPACTO DE EDIÇÃO RÁPIDA DE META FINANCEIRA */}
+      {metaModalOpen && metaModalRevenda && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden scale-in">
+            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-xs font-bold text-slate-900">Editar Meta de Vendas</h3>
+                <p className="text-[11px] text-slate-500 truncate max-w-[240px]">
+                  {metaModalRevenda.nome}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMetaModalOpen(false)
+                  setMetaModalRevenda(null)
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                if (!metaModalRevenda) return
+                setIsSavingMeta(true)
+                try {
+                  const metaVal =
+                    metaModalValue.trim() !== '' && !isNaN(Number(metaModalValue))
+                      ? Number(metaModalValue)
+                      : undefined
+                  await revendasService.update(metaModalRevenda.id, {
+                    meta: metaVal,
+                  })
+                  setMetaModalOpen(false)
+                  setMetaModalRevenda(null)
+                  await loadData()
+                } catch (err) {
+                  console.error('Erro ao salvar meta:', err)
+                  alert('Erro ao salvar a meta da revenda.')
+                } finally {
+                  setIsSavingMeta(false)
+                }
+              }}
+              className="p-5 space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Meta Financeira (R$)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  autoFocus
+                  value={metaModalValue}
+                  onChange={(e) => setMetaModalValue(e.target.value)}
+                  placeholder="Ex: 100000.00 (deixe vazio para remover)"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Informe o valor numérico em Reais.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMetaModalOpen(false)
+                    setMetaModalRevenda(null)
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingMeta}
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-all disabled:opacity-50"
+                >
+                  {isSavingMeta ? 'Salvando...' : 'Salvar Meta'}
                 </button>
               </div>
             </form>
