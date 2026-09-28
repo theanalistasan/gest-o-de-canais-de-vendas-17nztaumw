@@ -37,6 +37,11 @@ interface FieldMapping {
   cidade: number
   email: number
   telefone: number
+  serie: number
+  canais: number
+  canal: number
+  meta: number
+  status: number
 }
 
 interface ProcessedContatoItem {
@@ -60,6 +65,11 @@ interface ProcessedRevendaGroup {
   responsavel?: string
   estado?: string
   cidade?: string
+  serie?: string
+  canais?: string
+  canal?: string
+  meta?: number
+  status?: string
   existingId?: string
   isExisting?: boolean
   contatos: ProcessedContatoItem[]
@@ -90,6 +100,11 @@ export const ImportWizard: React.FC = () => {
     cidade: -1,
     email: -1,
     telefone: -1,
+    serie: -1,
+    canais: -1,
+    canal: -1,
+    meta: -1,
+    status: -1,
   })
 
   // Etapa 3: Regras e Sinônimos
@@ -182,6 +197,15 @@ export const ImportWizard: React.FC = () => {
     reader.readAsText(file, 'utf-8')
   }
 
+  // Utilitário para limpar acentos e converter para maiúsculas
+  const cleanHeader = (h: string): string => {
+    return h
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .trim()
+  }
+
   const autoDetectMapping = (headers: string[]) => {
     const map: FieldMapping = {
       segmento: -1,
@@ -196,79 +220,110 @@ export const ImportWizard: React.FC = () => {
       cidade: -1,
       email: -1,
       telefone: -1,
+      serie: -1,
+      canais: -1,
+      canal: -1,
+      meta: -1,
+      status: -1,
     }
 
     headers.forEach((h, idx) => {
+      const clean = cleanHeader(h)
       const lower = h.toLowerCase().trim()
 
-      // 1. Inside Sales — deve ter prioridade máxima para nunca ser capturado como 'nome' ou 'contato'
-      if (lower.includes('inside') || lower.includes('sales') || lower === 'is') {
+      // 1. Inside Sales — PRIORIDADE MÁXIMA para nunca ser capturado por nome, revenda ou contato
+      if (
+        clean === 'INSIDE' ||
+        clean === 'INSIDE SALES' ||
+        clean === 'IS' ||
+        clean.includes('INSIDE')
+      ) {
         map.insideSales = idx
       }
-      // 2. Segmento
-      else if (lower.includes('segment') || lower.includes('seguim')) {
+      // 2. Série (ex.: "Série", "SERIE")
+      else if (clean === 'SERIE' || clean.startsWith('SERIE')) {
+        map.serie = idx
+      }
+      // 3. CANais (SIM/NÃO) — coluna "CANAIS" ou "CANAILS"
+      else if (
+        clean === 'CANAIS' ||
+        clean === 'CANAILS' ||
+        clean === 'CAN AIS' ||
+        clean === 'CANAIS (SIM/NAO)'
+      ) {
+        map.canais = idx
+      }
+      // 4. Canal de Faturamento (ex.: "CANAL FATURAMENTO", "CANAL DE FATURAMENTO")
+      else if (clean.includes('FATURAMENTO') || clean === 'CANAL FATURAMENTO') {
+        map.canalFaturamento = idx
+      }
+      // 5. Canal da revenda (ex.: "CANAL", "CANAL REVENDA")
+      else if (clean === 'CANAL') {
+        map.canal = idx
+      }
+      // 6. Meta de Vendas (ex.: "META", "META DE VENDAS", "META VENDAS")
+      else if (clean === 'META' || clean.includes('META')) {
+        map.meta = idx
+      }
+      // 7. Status da Revenda (ex.: "Status", "STATUS")
+      else if (clean === 'STATUS' || clean.startsWith('STATUS')) {
+        map.status = idx
+      }
+      // 8. Segmento (ex.: "SEGMENTO", "SEGMENTO DP")
+      else if (clean.includes('SEGMENT') || clean.includes('SEGUIM')) {
         map.segmento = idx
       }
-      // 3. Código da Revenda
-      else if (lower === 'cod' || lower.includes('código') || lower.includes('codigo')) {
+      // 9. Código da Revenda (ex.: "COD", "CODIGO", "CÓDIGO")
+      else if (clean === 'COD' || clean === 'COD.' || clean.includes('CODIGO')) {
         map.codigo = idx
       }
-      // 4. Revenda (Razão Social / Nome Fantasia)
+      // 10. Nome da Revenda (ex.: "REVENDA", "RAZAO SOCIAL", "NOME FANTASIA")
       else if (
-        lower === 'revenda' ||
-        lower.includes('revenda') ||
-        lower.includes('razão') ||
-        lower.includes('razao') ||
-        lower.includes('fantasia')
+        clean === 'REVENDA' ||
+        clean.includes('REVENDA') ||
+        clean.includes('RAZAO') ||
+        clean.includes('FANTASIA')
       ) {
         map.revenda = idx
       }
-      // 5. Canal Faturamento
-      else if (lower.includes('canal') || lower.includes('faturamento')) {
-        map.canalFaturamento = idx
-      }
-      // 6. Responsável Comercial
+      // 11. Nome do Contato (ex.: "NOME DO CONTATO", "NOME CONTATO", "CONTATO")
       else if (
-        lower.includes('responsável') ||
-        lower.includes('responsavel') ||
-        lower === 'resp' ||
-        lower === 'rc'
+        clean === 'NOME DO CONTATO' ||
+        clean === 'NOME CONTATO' ||
+        clean === 'CONTATO' ||
+        clean === 'NOME' ||
+        (clean.includes('CONTATO') && !clean.includes('STATUS'))
       ) {
-        map.responsavel = idx
+        map.nomeContato = idx
       }
-      // 7. Cargo / Função
-      else if (lower.includes('cargo') || lower.includes('função') || lower.includes('funcao')) {
+      // 12. Cargo (ex.: "CARGO", "FUNCAO")
+      else if (clean.includes('CARGO') || clean.includes('FUNCAO')) {
         map.cargo = idx
       }
-      // 8. Estado / UF
-      else if (lower.includes('estado') || lower === 'uf') {
-        map.estado = idx
-      }
-      // 9. Cidade / Município
-      else if (lower.includes('cidade') || lower.includes('munic')) {
-        map.cidade = idx
-      }
-      // 10. E-mail
-      else if (lower.includes('mail') || lower.includes('e-mail')) {
+      // 13. E-mail (ex.: "E-MAIL", "EMAIL", "CORREIO")
+      else if (clean.includes('MAIL') || clean.includes('E-MAIL')) {
         map.email = idx
       }
-      // 11. Telefone / Celular / Whatsapp
+      // 14. Telefone / Celular (ex.: "TELEFONE", "TEL", "FONE", "CELULAR", "WHATSAPP")
       else if (
-        lower.includes('tel') ||
-        lower.includes('cel') ||
-        lower.includes('fone') ||
-        lower.includes('whats')
+        clean.includes('TEL') ||
+        clean.includes('CEL') ||
+        clean.includes('FONE') ||
+        clean.includes('WHATS')
       ) {
         map.telefone = idx
       }
-      // 12. Nome do Contato (somente colunas de contato ou nome que não sejam revenda/inside sales)
-      else if (
-        lower.includes('contato') ||
-        lower === 'nome' ||
-        lower.includes('nome do contato') ||
-        lower.includes('nome contato')
-      ) {
-        map.nomeContato = idx
+      // 15. Estado / UF (ex.: "Estado", "ESTADO", "UF")
+      else if (clean === 'ESTADO' || clean === 'UF' || clean.includes('ESTADO')) {
+        map.estado = idx
+      }
+      // 16. Município / Cidade (ex.: "Município", "MUNICIPIO", "CIDADE")
+      else if (clean.includes('MUNICIP') || clean.includes('CIDADE')) {
+        map.cidade = idx
+      }
+      // 17. Responsável Comercial
+      else if (clean.includes('RESPONSAVEL') || clean === 'RESP' || clean === 'RC') {
+        map.responsavel = idx
       }
     })
 
@@ -303,6 +358,21 @@ export const ImportWizard: React.FC = () => {
     return phone.replace(/\D/g, '')
   }
 
+  // Normalização de número/meta monetária (R$, pontos de milhar, vírgula decimal)
+  const parseMetaValue = (val?: string): number | undefined => {
+    if (!val) return undefined
+    const trimmed = val.trim()
+    if (!trimmed) return undefined
+    // Remove "R$", espaços, pontos de milhar
+    const cleaned = trimmed
+      .replace(/R\$/gi, '')
+      .replace(/\s+/g, '')
+      .replace(/\./g, '')
+      .replace(',', '.')
+    const parsed = Number(cleaned)
+    return isNaN(parsed) ? undefined : parsed
+  }
+
   // ETAPA 3 -> 4: Agrupamento em memória e checagem com o banco de dados contra duplicidade
   const handleProcessAndValidate = async () => {
     setIsValidatingDb(true)
@@ -322,11 +392,17 @@ export const ImportWizard: React.FC = () => {
         const rawRevenda = mapping.revenda >= 0 ? (row[mapping.revenda] || '').trim() : ''
         const rawSegmento = mapping.segmento >= 0 ? (row[mapping.segmento] || '').trim() : ''
         const rawInside = mapping.insideSales >= 0 ? (row[mapping.insideSales] || '').trim() : ''
-        const rawCanal =
+        const rawCanalFat =
           mapping.canalFaturamento >= 0 ? (row[mapping.canalFaturamento] || '').trim() : ''
         const rawResp = mapping.responsavel >= 0 ? (row[mapping.responsavel] || '').trim() : ''
         const rawEstado = mapping.estado >= 0 ? (row[mapping.estado] || '').trim() : ''
         const rawCidade = mapping.cidade >= 0 ? (row[mapping.cidade] || '').trim() : ''
+        const rawSerie = mapping.serie >= 0 ? (row[mapping.serie] || '').trim() : ''
+        const rawCanais = mapping.canais >= 0 ? (row[mapping.canais] || '').trim() : ''
+        const rawCanal = mapping.canal >= 0 ? (row[mapping.canal] || '').trim() : ''
+        const rawMetaStr = mapping.meta >= 0 ? (row[mapping.meta] || '').trim() : ''
+        const parsedMeta = parseMetaValue(rawMetaStr)
+        const rawStatus = mapping.status >= 0 ? (row[mapping.status] || '').trim() : ''
 
         const rawNomeContato =
           mapping.nomeContato >= 0 ? (row[mapping.nomeContato] || '').trim() : ''
@@ -396,17 +472,39 @@ export const ImportWizard: React.FC = () => {
             nome: rawRevenda || `Revenda ${rawCodigo || groups.length + 1}`,
             segmento: rawSegmento || 'DIGITAL PRINTING (DP)',
             insideSales: rawInside || undefined,
-            canalFaturamento: rawCanal || undefined,
+            canalFaturamento: rawCanalFat || undefined,
             responsavel: rawResp || undefined,
             estado: rawEstado || undefined,
             cidade: rawCidade || undefined,
+            serie: rawSerie || undefined,
+            canais: rawCanais || undefined,
+            canal: rawCanal || undefined,
+            meta: parsedMeta,
+            status: rawStatus || undefined,
             contatos: [],
             issues: revendaIssues,
           }
+        } else if (currentGroup) {
+          // Preencher campos da revenda caso linhas subsequentes tragam dados complementares
+          if (!currentGroup.serie && rawSerie) currentGroup.serie = rawSerie
+          if (!currentGroup.canais && rawCanais) currentGroup.canais = rawCanais
+          if (!currentGroup.canal && rawCanal) currentGroup.canal = rawCanal
+          if (currentGroup.meta === undefined && parsedMeta !== undefined) {
+            currentGroup.meta = parsedMeta
+          }
+          if (!currentGroup.status && rawStatus) currentGroup.status = rawStatus
+          if (!currentGroup.segmento && rawSegmento) currentGroup.segmento = rawSegmento
+          if (!currentGroup.insideSales && rawInside) currentGroup.insideSales = rawInside
+          if (!currentGroup.canalFaturamento && rawCanalFat)
+            currentGroup.canalFaturamento = rawCanalFat
+          if (!currentGroup.responsavel && rawResp) currentGroup.responsavel = rawResp
+          if (!currentGroup.estado && rawEstado) currentGroup.estado = rawEstado
+          if (!currentGroup.cidade && rawCidade) currentGroup.cidade = rawCidade
         }
 
-        // Se há nome de contato nesta linha, adiciona ao grupo atual
-        if (currentGroup && (rawNomeContato || primaryEmail)) {
+        // Se há contato nesta linha (mesmo que SEM nome e SEM cargo, mas com e-mail ou telefone)
+        // Linhas podem vir apenas com e-mail e telefone: criar contato com e-mail como fallback de nome se nome vier vazio
+        if (currentGroup && (rawNomeContato || primaryEmail || rawTel)) {
           const contatoIssues = [...emailIssues]
           // Validação: verificar se o nome do contato é idêntico ao inside sales da revenda
           if (
@@ -419,8 +517,11 @@ export const ImportWizard: React.FC = () => {
             )
           }
 
+          // Nome do contato: se vier vazio, usa e-mail ou telefone ou 'Contato sem nome'
+          const finalContatoNome = rawNomeContato || primaryEmail || rawTel || 'Contato sem nome'
+
           currentGroup.contatos.push({
-            nome: rawNomeContato || 'Contato sem nome',
+            nome: finalContatoNome,
             cargo: rawCargo || undefined,
             email: primaryEmail || undefined,
             emailSecundario: secondaryEmail || undefined,
@@ -756,23 +857,43 @@ export const ImportWizard: React.FC = () => {
           if (!existingRev.canal_faturamento && canId) updatePayload.canal_faturamento = canId
           if (!existingRev.estado && estadoId) updatePayload.estado = estadoId
           if (!existingRev.cidade && g.cidade) updatePayload.cidade = g.cidade
+          if (!existingRev.serie && g.serie) updatePayload.serie = g.serie
+          if (!existingRev.canais && g.canais) updatePayload.canais = g.canais
+          if (!existingRev.canal && g.canal) updatePayload.canal = g.canal
+          if (
+            (existingRev.meta === undefined || existingRev.meta === null) &&
+            g.meta !== undefined
+          ) {
+            updatePayload.meta = g.meta
+          }
 
           if (Object.keys(updatePayload).length > 0) {
             await executeWithRetry(() => revendasService.update(existingRev.id, updatePayload))
           }
           revAtualizadas++
         } else {
+          // Status da revenda: se veio na planilha, busca no map ou cria
+          let revStatusId = defaultStatusId
+          if (g.status) {
+            const matchedStId = await getOrCreate('status_revenda', g.status, statMap)
+            if (matchedStId) revStatusId = matchedStId
+          }
+
           const createdRev = await executeWithRetry(() =>
             revendasService.create({
               codigo: g.codigo,
               nome: g.nome,
               segmento: segId,
-              status: defaultStatusId,
+              status: revStatusId,
               inside_sales: insideId,
               responsavel: respId,
               canal_faturamento: canId,
               estado: estadoId,
               cidade: g.cidade,
+              serie: g.serie,
+              canais: g.canais,
+              canal: g.canal,
+              meta: g.meta,
             }),
           )
           revendaRecordId = createdRev.id
@@ -1016,16 +1137,21 @@ export const ImportWizard: React.FC = () => {
             {[
               { key: 'codigo', label: 'Código da Revenda' },
               { key: 'revenda', label: 'Nome da Revenda *' },
+              { key: 'status', label: 'Status da Revenda' },
               { key: 'segmento', label: 'Segmento' },
+              { key: 'serie', label: 'Série' },
+              { key: 'canais', label: 'CANais (SIM/NÃO)' },
+              { key: 'canalFaturamento', label: 'Canal Faturamento' },
+              { key: 'canal', label: 'Canal' },
+              { key: 'meta', label: 'Meta de Vendas' },
+              { key: 'insideSales', label: 'Inside Sales' },
+              { key: 'responsavel', label: 'Responsável' },
+              { key: 'estado', label: 'Estado (UF)' },
+              { key: 'cidade', label: 'Cidade / Município' },
               { key: 'nomeContato', label: 'Nome do Contato' },
               { key: 'cargo', label: 'Cargo' },
               { key: 'email', label: 'E-mail' },
               { key: 'telefone', label: 'Telefone / Celular' },
-              { key: 'insideSales', label: 'Inside Sales' },
-              { key: 'canalFaturamento', label: 'Canal Faturamento' },
-              { key: 'responsavel', label: 'Responsável' },
-              { key: 'estado', label: 'Estado (UF)' },
-              { key: 'cidade', label: 'Cidade' },
             ].map(({ key, label }) => {
               const fieldKey = key as keyof FieldMapping
               return (

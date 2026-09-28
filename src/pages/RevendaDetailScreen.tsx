@@ -294,7 +294,7 @@ export const RevendaDetailScreen: React.FC = () => {
         </div>
 
         {/* ATRIBUTOS COMERCIAIS */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
           <div>
             <span className="text-[10px] uppercase font-bold text-slate-400 block">
               Inside Sales
@@ -318,6 +318,18 @@ export const RevendaDetailScreen: React.FC = () => {
             <span className="font-semibold text-slate-800">
               {revenda.expand?.canal_faturamento?.nome || '—'}
             </span>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">Série</span>
+            <span className="font-semibold text-slate-800">{revenda.serie || '—'}</span>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">Canais</span>
+            <span className="font-semibold text-slate-800">{revenda.canais || '—'}</span>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">Canal</span>
+            <span className="font-semibold text-slate-800">{revenda.canal || '—'}</span>
           </div>
           <div>
             <span className="text-[10px] uppercase font-bold text-emerald-600 block">

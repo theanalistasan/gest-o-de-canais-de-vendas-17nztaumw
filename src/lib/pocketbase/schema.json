@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T18:57:22.043Z",
+  "generatedAt": "2026-09-28T19:23:20.680Z",
   "collections": [
     {
       "name": "users",
@@ -484,6 +484,24 @@
         {
           "name": "meta",
           "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "serie",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "canais",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "canal",
+          "type": "text",
           "required": false,
           "system": false
         }

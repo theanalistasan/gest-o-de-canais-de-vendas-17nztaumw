@@ -91,6 +91,9 @@ export interface Revenda {
   cidade?: string
   observacoes?: string
   meta?: number
+  serie?: string
+  canais?: string
+  canal?: string
   created: string
   updated: string
   // Expansões comuns

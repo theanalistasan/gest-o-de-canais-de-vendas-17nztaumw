@@ -89,6 +89,9 @@ export const RevendasScreen: React.FC = () => {
     canal_faturamento: '',
     estado: '',
     cidade: '',
+    serie: '',
+    canais: '',
+    canal: '',
     meta: '',
     observacoes: '',
   })
@@ -247,6 +250,9 @@ export const RevendasScreen: React.FC = () => {
         canal_faturamento: revenda.canal_faturamento || '',
         estado: revenda.estado || '',
         cidade: revenda.cidade || '',
+        serie: revenda.serie || '',
+        canais: revenda.canais || '',
+        canal: revenda.canal || '',
         meta: revenda.meta !== undefined && revenda.meta !== null ? String(revenda.meta) : '',
         observacoes: revenda.observacoes || '',
       })
@@ -262,6 +268,9 @@ export const RevendasScreen: React.FC = () => {
         canal_faturamento: '',
         estado: '',
         cidade: '',
+        serie: '',
+        canais: '',
+        canal: '',
         meta: '',
         observacoes: '',
       })
@@ -367,6 +376,9 @@ export const RevendasScreen: React.FC = () => {
         canal_faturamento: formData.canal_faturamento || undefined,
         estado: formData.estado || undefined,
         cidade: formData.cidade.trim() || undefined,
+        serie: formData.serie.trim() || undefined,
+        canais: formData.canais.trim() || undefined,
+        canal: formData.canal.trim() || undefined,
         meta:
           formData.meta !== '' && !isNaN(Number(formData.meta)) ? Number(formData.meta) : undefined,
         observacoes: formData.observacoes.trim() || undefined,
@@ -414,6 +426,9 @@ export const RevendasScreen: React.FC = () => {
       inside_sales: r.expand?.inside_sales?.nome || '',
       responsavel: r.expand?.responsavel?.nome || '',
       canal_faturamento: r.expand?.canal_faturamento?.nome || '',
+      serie: r.serie || '',
+      canais: r.canais || '',
+      canal: r.canal || '',
       estado: r.expand?.estado?.uf || '',
       cidade: r.cidade || '',
       meta:
@@ -428,9 +443,12 @@ export const RevendasScreen: React.FC = () => {
       { key: 'nome', label: 'Revenda' },
       { key: 'segmento', label: 'Segmento' },
       { key: 'status', label: 'Status' },
+      { key: 'serie', label: 'Série' },
+      { key: 'canais', label: 'Canais (SIM/NÃO)' },
+      { key: 'canal', label: 'Canal' },
+      { key: 'canal_faturamento', label: 'Canal Faturamento' },
       { key: 'inside_sales', label: 'Inside Sales' },
       { key: 'responsavel', label: 'Responsável' },
-      { key: 'canal_faturamento', label: 'Canal Faturamento' },
       { key: 'estado', label: 'UF' },
       { key: 'cidade', label: 'Cidade' },
       { key: 'meta', label: 'Meta (R$)' },
@@ -1259,6 +1277,44 @@ export const RevendasScreen: React.FC = () => {
                       Selecione o estado primeiro para listar as cidades
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Série, CANais e Canal */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Série</label>
+                  <input
+                    type="text"
+                    value={formData.serie}
+                    onChange={(e) => setFormData({ ...formData, serie: e.target.value })}
+                    placeholder="Ex: Manual"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    CANais (SIM / NÃO)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.canais}
+                    onChange={(e) => setFormData({ ...formData, canais: e.target.value })}
+                    placeholder="Ex: SIM"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Canal</label>
+                  <input
+                    type="text"
+                    value={formData.canal}
+                    onChange={(e) => setFormData({ ...formData, canal: e.target.value })}
+                    placeholder="Ex: ADENILL"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
                 </div>
               </div>
 
