@@ -1084,7 +1084,7 @@ export const ComunicacoesScreen: React.FC = () => {
                 <img
                   src={ROLAND_LOGO_URL}
                   alt="Roland DG Brasil"
-                  className="h-9 w-auto object-contain"
+                  className="w-[280px] sm:w-[340px] max-w-full h-auto object-contain"
                   onError={(e) => {
                     // Fallback visual caso bloqueador impeça carregamento do preview local
                     ;(e.target as HTMLElement).style.display = 'none'
@@ -1456,7 +1456,7 @@ export const ComunicacoesScreen: React.FC = () => {
                     <img
                       src={ROLAND_LOGO_URL}
                       alt="Roland DG Brasil"
-                      className="h-8 w-auto object-contain"
+                      className="w-[280px] sm:w-[340px] max-w-full h-auto object-contain"
                       onError={(e) => {
                         ;(e.target as HTMLElement).style.display = 'none'
                       }}

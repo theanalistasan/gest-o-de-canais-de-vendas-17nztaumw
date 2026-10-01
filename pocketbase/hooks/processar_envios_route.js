@@ -116,20 +116,27 @@ routerAdd(
         }
 
         // Buscar dados do contato e da revenda para resolver placeholders {{nome}} e {{revenda}}
-        let nomeContato = envio.getString('nome_contato') || 'Prezado(a)'
-        let nomeRevenda = envio.getString('nome_revenda') || 'sua empresa'
+        // Prioriza o snapshot gravado no envio; se vazio, busca pelo registro vinculado
+        let nomeContato = envio.getString('nome_contato')
+        let nomeRevenda = envio.getString('nome_revenda')
         try {
-          const contatoId = envio.getString('contato')
-          if (contatoId) {
-            const recContato = $app.findRecordById('contatos', contatoId)
-            nomeContato = recContato.getString('nome') || nomeContato
+          if (!nomeContato) {
+            const contatoId = envio.getString('contato')
+            if (contatoId) {
+              const recContato = $app.findRecordById('contatos', contatoId)
+              nomeContato = recContato.getString('nome') || ''
+            }
           }
-          const revendaId = envio.getString('revenda')
-          if (revendaId) {
-            const recRevenda = $app.findRecordById('revendas', revendaId)
-            nomeRevenda = recRevenda.getString('nome') || nomeRevenda
+          if (!nomeRevenda) {
+            const revendaId = envio.getString('revenda')
+            if (revendaId) {
+              const recRevenda = $app.findRecordById('revendas', revendaId)
+              nomeRevenda = recRevenda.getString('nome') || ''
+            }
           }
         } catch (_) {}
+        if (!nomeContato) nomeContato = 'Prezado(a)'
+        if (!nomeRevenda) nomeRevenda = 'sua empresa'
 
         // Resolver mensagem personalizada
         let corpoFinal = campCorpo
@@ -175,7 +182,7 @@ routerAdd(
             '<td align="left" valign="middle">' +
             '<img src="' +
             logoUrl +
-            '" alt="Roland DG Brasil" width="220" style="display:block;width:220px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;font-family:Arial,sans-serif;font-size:18px;font-weight:bold;color:#005696;" />' +
+            '" alt="Roland DG Brasil" width="340" style="display:block;width:340px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;font-family:Arial,sans-serif;font-size:18px;font-weight:bold;color:#005696;" />' +
             '</td>' +
             '<td align="right" valign="middle" style="font-size:11px;color:#64748b;font-family:Arial,sans-serif;">Comunicação Oficial</td>' +
             '</tr></table>' +

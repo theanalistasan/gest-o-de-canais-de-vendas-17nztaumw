@@ -59,7 +59,7 @@ export function buildRolandEmailHtml(
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
                   <td align="left" valign="middle">
-                    <img src="${ROLAND_LOGO_URL}" alt="Roland DG Brasil" width="220" style="display: block; width: 220px; max-width: 100%; height: auto; border: 0; outline: none; text-decoration: none; font-family: Arial, sans-serif; font-size: 18px; font-weight: bold; color: #005696;" />
+                    <img src="${ROLAND_LOGO_URL}" alt="Roland DG Brasil" width="340" style="display: block; width: 340px; max-width: 100%; height: auto; border: 0; outline: none; text-decoration: none; font-family: Arial, sans-serif; font-size: 18px; font-weight: bold; color: #005696;" />
                   </td>
                   <td align="right" valign="middle" style="font-size: 11px; color: #64748b; font-family: Arial, sans-serif; font-weight: 500;">
                     Comunicação Oficial

@@ -106,9 +106,9 @@ export const HistoricoScreen: React.FC = () => {
       }
       if (searchGeral.trim()) {
         const q = searchGeral.toLowerCase().trim()
-        const codigoRev = (e.expand?.revenda?.codigo || e.codigo_revenda || '').toLowerCase()
-        const nomeRev = (e.expand?.revenda?.nome || e.nome_revenda || '').toLowerCase()
-        const nomeCont = (e.expand?.contato?.nome || e.nome_contato || '').toLowerCase()
+        const codigoRev = (e.codigo_revenda || e.expand?.revenda?.codigo || '').toLowerCase()
+        const nomeRev = (e.nome_revenda || e.expand?.revenda?.nome || '').toLowerCase()
+        const nomeCont = (e.nome_contato || e.expand?.contato?.nome || '').toLowerCase()
         const matchCodigo = codigoRev.includes(q)
         const matchRevenda = nomeRev.includes(q)
         const matchContato = nomeCont.includes(q)
@@ -323,9 +323,9 @@ export const HistoricoScreen: React.FC = () => {
         e.expand?.campanha?.expand?.usuario?.name ||
         e.expand?.campanha?.expand?.usuario?.email ||
         '',
-      revenda: e.expand?.revenda?.nome || e.nome_revenda || '',
-      codigo_revenda: e.expand?.revenda?.codigo || e.codigo_revenda || '',
-      contato: e.expand?.contato?.nome || e.nome_contato || '',
+      revenda: e.nome_revenda || e.expand?.revenda?.nome || '',
+      codigo_revenda: e.codigo_revenda || e.expand?.revenda?.codigo || '',
+      contato: e.nome_contato || e.expand?.contato?.nome || '',
       email: e.email_utilizado || '',
       status: e.status,
       sucesso: e.sucesso ? 'Sim' : 'Não',
@@ -624,9 +624,9 @@ export const HistoricoScreen: React.FC = () => {
 
                     {/* Código Revenda */}
                     <td className="py-3 px-4 whitespace-nowrap">
-                      {env.expand?.revenda?.codigo || env.codigo_revenda ? (
+                      {env.codigo_revenda || env.expand?.revenda?.codigo ? (
                         <span className="font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                          {env.expand?.revenda?.codigo || env.codigo_revenda}
+                          {env.codigo_revenda || env.expand?.revenda?.codigo}
                         </span>
                       ) : (
                         <span className="text-slate-400 italic">—</span>
@@ -635,12 +635,12 @@ export const HistoricoScreen: React.FC = () => {
 
                     {/* Revenda */}
                     <td className="py-3 px-4 text-slate-700 font-medium">
-                      {env.expand?.revenda?.nome || env.nome_revenda || '—'}
+                      {env.nome_revenda || env.expand?.revenda?.nome || '—'}
                     </td>
 
                     {/* Contato */}
                     <td className="py-3 px-4 text-slate-800 font-semibold">
-                      {env.expand?.contato?.nome || env.nome_contato || '—'}
+                      {env.nome_contato || env.expand?.contato?.nome || '—'}
                     </td>
 
                     {/* E-mail */}
@@ -850,8 +850,8 @@ export const HistoricoScreen: React.FC = () => {
                   <div>
                     <span className="font-semibold text-slate-500">Destinatário: </span>
                     <span className="font-medium break-words">
-                      {envioParaReenviar?.expand?.contato?.nome ||
-                        envioParaReenviar?.nome_contato ||
+                      {envioParaReenviar?.nome_contato ||
+                        envioParaReenviar?.expand?.contato?.nome ||
                         'Contato'}
                     </span>
                   </div>
@@ -950,8 +950,8 @@ export const HistoricoScreen: React.FC = () => {
                   <div>
                     <span className="font-semibold text-slate-500">Destinatário: </span>
                     <span className="font-medium break-words">
-                      {envioParaExcluir?.expand?.contato?.nome ||
-                        envioParaExcluir?.nome_contato ||
+                      {envioParaExcluir?.nome_contato ||
+                        envioParaExcluir?.expand?.contato?.nome ||
                         'Contato'}
                     </span>
                   </div>
@@ -1115,7 +1115,7 @@ export const HistoricoScreen: React.FC = () => {
                     Destinatário
                   </span>
                   <span className="font-semibold text-slate-800 break-words">
-                    {selectedEnvio.expand?.contato?.nome || selectedEnvio.nome_contato || '—'}
+                    {selectedEnvio.nome_contato || selectedEnvio.expand?.contato?.nome || '—'}
                   </span>
                 </div>
                 <div>
@@ -1123,12 +1123,12 @@ export const HistoricoScreen: React.FC = () => {
                     Revenda
                   </span>
                   <span className="font-semibold text-slate-800 break-words">
-                    {selectedEnvio.expand?.revenda?.nome || selectedEnvio.nome_revenda || '—'}
+                    {selectedEnvio.nome_revenda || selectedEnvio.expand?.revenda?.nome || '—'}
                   </span>
-                  {(selectedEnvio.expand?.revenda?.codigo || selectedEnvio.codigo_revenda) && (
+                  {(selectedEnvio.codigo_revenda || selectedEnvio.expand?.revenda?.codigo) && (
                     <span className="block font-mono text-xs text-blue-700 font-semibold mt-0.5">
                       Código:{' '}
-                      {selectedEnvio.expand?.revenda?.codigo || selectedEnvio.codigo_revenda}
+                      {selectedEnvio.codigo_revenda || selectedEnvio.expand?.revenda?.codigo}
                     </span>
                   )}
                 </div>
@@ -1177,7 +1177,7 @@ export const HistoricoScreen: React.FC = () => {
                       <img
                         src={`${(import.meta as unknown as { env: { VITE_POCKETBASE_URL?: string } }).env.VITE_POCKETBASE_URL || ''}/backend/v1/roland-logo.png`}
                         alt="Roland DG Brasil"
-                        className="h-7 w-auto object-contain"
+                        className="w-[260px] sm:w-[340px] max-w-full h-auto object-contain"
                         onError={(e) => {
                           ;(e.target as HTMLElement).style.display = 'none'
                         }}
@@ -1191,11 +1191,11 @@ export const HistoricoScreen: React.FC = () => {
                       {(selectedEnvio.expand?.campanha?.corpo || '')
                         .replace(
                           /{{nome}}/g,
-                          selectedEnvio.expand?.contato?.nome || selectedEnvio.nome_contato || '',
+                          selectedEnvio.nome_contato || selectedEnvio.expand?.contato?.nome || '',
                         )
                         .replace(
                           /{{revenda}}/g,
-                          selectedEnvio.expand?.revenda?.nome || selectedEnvio.nome_revenda || '',
+                          selectedEnvio.nome_revenda || selectedEnvio.expand?.revenda?.nome || '',
                         )}
                     </div>
 
