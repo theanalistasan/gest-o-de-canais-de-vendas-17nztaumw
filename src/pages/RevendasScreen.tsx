@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useTransition } from 'react'
-import { Link } from 'react-router-dom'
+import React, { useState, useEffect, useMemo, useTransition, useRef } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Plus,
   Download,
@@ -34,9 +34,11 @@ import type {
 export const RevendasScreen: React.FC = () => {
   const { canWrite } = useAuth()
   const [, startTransition] = useTransition()
+  const [searchParams] = useSearchParams()
 
   const [revendas, setRevendas] = useState<Revenda[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const handledEditParamRef = useRef<string | null>(null)
 
   // Auxiliares para filtros e modal
   const [segmentos, setSegmentos] = useState<Segmento[]>([])
@@ -126,6 +128,19 @@ export const RevendasScreen: React.FC = () => {
   useEffect(() => {
     loadData()
   }, [])
+
+  // Suporte a abertura automática via ?editRevendaId=<id>
+  useEffect(() => {
+    const editId = searchParams.get('editRevendaId')
+    if (!editId || isLoading || revendas.length === 0) return
+    if (handledEditParamRef.current === editId) return
+
+    const target = revendas.find((r) => r.id === editId)
+    if (target) {
+      handledEditParamRef.current = editId
+      handleOpenModal(target)
+    }
+  }, [searchParams, isLoading, revendas])
 
   // Filtragem
   const filteredRevendas = useMemo(() => {

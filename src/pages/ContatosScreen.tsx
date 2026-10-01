@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useTransition } from 'react'
+import React, { useState, useEffect, useMemo, useTransition, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Users,
@@ -105,6 +105,7 @@ export const ContatosScreen: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingContato, setEditingContato] = useState<Contato | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const handledEditParamRef = useRef<string | null>(null)
 
   // Modal Edição Rápida de Meta Financeira da Revenda
   const [metaModalOpen, setMetaModalOpen] = useState(false)
@@ -159,6 +160,19 @@ export const ContatosScreen: React.FC = () => {
   useEffect(() => {
     loadData()
   }, [])
+
+  // Suporte a abertura automática via ?editContatoId=<id>
+  useEffect(() => {
+    const editId = searchParams.get('editContatoId')
+    if (!editId || isLoading || contatos.length === 0) return
+    if (handledEditParamRef.current === editId) return
+
+    const target = contatos.find((c) => c.id === editId)
+    if (target) {
+      handledEditParamRef.current = editId
+      handleOpenModal(target)
+    }
+  }, [searchParams, isLoading, contatos])
 
   // Mapa de revendas indexado por id (com acesso rápido ao segmento e outros campos)
   const revendaMap = useMemo(() => {
