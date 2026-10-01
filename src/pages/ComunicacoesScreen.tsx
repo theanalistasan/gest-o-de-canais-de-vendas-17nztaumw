@@ -33,6 +33,7 @@ import {
   DEFAULT_EMAIL_FECHAMENTO,
   ROLAND_LOGO_URL,
 } from '@/lib/emailTemplateHelper'
+import { extractFieldErrors } from '@/lib/pocketbase/errors'
 import type {
   Contato,
   Revenda,
@@ -106,6 +107,7 @@ export const ComunicacoesScreen: React.FC = () => {
     atual: number
   } | null>(null)
   const [retryStatusMessage, setRetryStatusMessage] = useState<string | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   // Atualizar localStorage quando o fechamento for modificado
   const handleFechamentoChange = (novoFechamento: string) => {
@@ -447,6 +449,17 @@ export const ComunicacoesScreen: React.FC = () => {
     }
   }
 
+  // Aborta o enfileiramento restante se o usuário cancelar
+  const handleAbortEnfileiramento = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    setIsSubmitting(false)
+    setIsConfirmModalOpen(false)
+    setRetryStatusMessage(null)
+  }
+
   // Confirmar e Iniciar Envio
   const handleConfirmAndSend = async () => {
     if (!user || !canWrite) {
@@ -467,20 +480,59 @@ export const ComunicacoesScreen: React.FC = () => {
       return
     }
 
+    // Validações rigorosas de campos obrigatórios de Campanha antes da chamada à API
+    const nomeValido = nomeCampanha.trim() || `Disparo ${assunto.trim().substring(0, 30)}`
+    const assuntoValido = assunto.trim()
+    const corpoValido = corpo.trim()
+    const remetenteValido = selectedRemetente.trim()
+
+    if (!assuntoValido) {
+      toast({
+        title: 'Assunto obrigatório',
+        description: 'Por favor, informe o assunto da mensagem antes de iniciar o disparo.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!corpoValido) {
+      toast({
+        title: 'Conteúdo da mensagem vazio',
+        description: 'Por favor, digite o conteúdo do e-mail no editor antes de disparar.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!remetenteValido) {
+      toast({
+        title: 'Remetente obrigatório',
+        description: 'Selecione um remetente válido para a comunicação.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+    const signal = abortController.signal
+
     setIsSubmitting(true)
     setEnfileiramentoProgresso({ total: destinatariosFinais.length, atual: 0 })
     setRetryStatusMessage(null)
 
+    let createdCampId: string | null = null
+    let enfileiradosCount = 0
+
     try {
       // 1. Criar a Campanha com status "Enviando" usando executeWithRetry
       const formData = new FormData()
-      formData.append('nome', nomeCampanha.trim() || `Disparo ${assunto.substring(0, 30)}`)
-      formData.append('assunto', assunto.trim())
-      // Salva o corpo com o fechamento/assinatura incorporado
-      formData.append('corpo', corpo.trim())
-      formData.append('remetente', selectedRemetente)
+      formData.append('nome', nomeValido)
+      formData.append('assunto', assuntoValido)
+      formData.append('corpo', corpoValido)
+      formData.append('remetente', remetenteValido)
       formData.append('tipo_envio', tipoEnvio)
-      formData.append('intervalo_segundos', String(intervaloSegundos))
+      formData.append('intervalo_segundos', String(intervaloSegundos || 10))
       formData.append('quantidade_destinatarios', String(destinatariosFinais.length))
       formData.append('status', 'Enviando')
       formData.append('usuario', user.id)
@@ -490,100 +542,181 @@ export const ComunicacoesScreen: React.FC = () => {
       }
 
       const camp = await executeWithRetry(() => comunicacoesService.createCampanha(formData), {
-        onRetry: (_attempt, _err, delay) => {
-          setRetryStatusMessage(
-            `O servidor está processando muitas requisições simultâneas. Aguardando liberação (${Math.round(delay)}ms)…`,
-          )
+        signal,
+        maxAttempts: 4,
+        initialDelayMs: 500,
+        onRetry: (_attempt, _err, delay, is429) => {
+          if (is429) {
+            setRetryStatusMessage(
+              'O servidor está processando muitas requisições simultâneas. Aguardando liberação…',
+            )
+          } else {
+            setRetryStatusMessage(`Aguardando estabilização do servidor (${Math.round(delay)}ms)…`)
+          }
         },
       })
 
+      createdCampId = camp.id
+
       // 2. Criar os registros individuais na fila `envios` com status "Pendente"
-      // Idempotência: verificar existência por (campanha, contato) ou (campanha, email_utilizado)
-      // Processamento em lotes cadenciados para não sobrecarregar o SQLite nem os hooks de auditoria
-      const BATCH_SIZE = 8
-      const PAUSE_BETWEEN_BATCHES_MS = 250
-      let enfileiradosCount = 0
+      // REGRA: Enfileiramento ESTRITAMENTE SEQUENCIAL (uma a uma, sem Promise.all)
+      // Pausa base entre inserções de 450ms.
+      // Em caso de 429: respeito ao Retry-After ou backoff adaptativo (1s -> 2s -> 4s -> 8s cap 30s)
+      // Idempotência ativa: findExistingEnvio garante que nenhum retry ou re-execução crie duplicatas.
+      const BASE_PAUSE_MS = 450
 
-      for (let i = 0; i < destinatariosFinais.length; i += BATCH_SIZE) {
-        const batch = destinatariosFinais.slice(i, i + BATCH_SIZE)
+      for (let i = 0; i < destinatariosFinais.length; i++) {
+        if (signal.aborted) {
+          throw new DOMException('Operação cancelada pelo usuário', 'AbortError')
+        }
 
-        await Promise.all(
-          batch.map(async (dest) => {
-            const emailDest = dest.email || dest.email_secundario || ''
-            return executeWithRetry(
-              async () => {
-                // Idempotência: verificar se já existe envio para este contato/email nesta campanha
-                const existing = await comunicacoesService.findExistingEnvio(
-                  camp.id,
-                  dest.id,
-                  emailDest,
-                )
+        const dest = destinatariosFinais[i]
+        const emailDest = dest.email || dest.email_secundario || ''
 
-                if (existing) {
-                  // Já existe registro criado nesta campanha: não duplicar
-                  return existing
-                }
-
-                return comunicacoesService.createEnvio({
-                  campanha: camp.id,
-                  contato: dest.id,
-                  revenda: dest.revenda,
-                  nome_contato: dest.nome || '',
-                  nome_revenda: revendasMap.get(dest.revenda)?.nome || '',
-                  codigo_revenda: revendasMap.get(dest.revenda)?.codigo || '',
-                  email_utilizado: emailDest,
-                  status: 'Pendente',
-                  sucesso: false,
-                  erro: false,
-                  mensagem_erro: '',
-                })
-              },
-              {
-                maxAttempts: 4,
-                initialDelayMs: 400,
-                factor: 1.8,
-                onRetry: (_att, _err, delay) => {
-                  setRetryStatusMessage(
-                    `O servidor está processando muitas requisições simultâneas. Aguardando liberação…`,
-                  )
-                },
-              },
+        await executeWithRetry(
+          async () => {
+            // Idempotência pré-inserção: checa se já existe envio para este contato/email nesta campanha
+            const existing = await comunicacoesService.findExistingEnvio(
+              camp.id,
+              dest.id,
+              emailDest,
             )
-          }),
+
+            if (existing) {
+              return existing
+            }
+
+            return comunicacoesService.createEnvio({
+              campanha: camp.id,
+              contato: dest.id,
+              revenda: dest.revenda,
+              nome_contato: dest.nome || '',
+              nome_revenda: revendasMap.get(dest.revenda)?.nome || '',
+              codigo_revenda: revendasMap.get(dest.revenda)?.codigo || '',
+              email_utilizado: emailDest,
+              status: 'Pendente',
+              sucesso: false,
+              erro: false,
+              mensagem_erro: '',
+            })
+          },
+          {
+            signal,
+            maxAttempts: 5,
+            initialDelayMs: 600,
+            factor: 2,
+            maxDelayMs: 30000,
+            onRetry: (_att, _err, _delay, is429) => {
+              if (is429) {
+                setRetryStatusMessage(
+                  'O servidor está processando muitas requisições simultâneas. Aguardando liberação…',
+                )
+              } else {
+                setRetryStatusMessage(
+                  'O servidor está processando muitas requisições simultâneas. Aguardando liberação…',
+                )
+              }
+            },
+          },
         )
 
-        enfileiradosCount += batch.length
+        // Limpa a mensagem de retry se a requisição foi bem-sucedida
+        setRetryStatusMessage(null)
+
+        enfileiradosCount++
         setEnfileiramentoProgresso({
           total: destinatariosFinais.length,
           atual: enfileiradosCount,
         })
 
-        // Pausa entre lotes para aliviar o pool de escrita SQLite e disparos do hook de auditoria
-        if (i + BATCH_SIZE < destinatariosFinais.length) {
-          await new Promise((resolve) => setTimeout(resolve, PAUSE_BETWEEN_BATCHES_MS))
+        // Pausa base obrigatória entre inserções sequenciais para respeitar o rate-limit do servidor
+        if (i < destinatariosFinais.length - 1) {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => resolve(), BASE_PAUSE_MS)
+            signal.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer)
+                reject(new DOMException('Operação cancelada pelo usuário', 'AbortError'))
+              },
+              { once: true },
+            )
+          })
         }
       }
 
       // 3. Chamar o endpoint customizado do backend para iniciar processamento imediato
-      await comunicacoesService.triggerProcessarEnvios(camp.id)
+      if (!signal.aborted) {
+        await comunicacoesService.triggerProcessarEnvios(camp.id)
 
-      toast({
-        title: 'Campanha enfileirada com sucesso!',
-        description: `${destinatariosFinais.length} destinatários foram enfileirados e estão sendo processados.`,
-        className: 'bg-emerald-50 border-emerald-200 text-emerald-900',
-      })
+        toast({
+          title: 'Campanha enfileirada com sucesso!',
+          description: `${destinatariosFinais.length} destinatários foram enfileirados e estão sendo processados.`,
+          className: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+        })
 
-      setIsConfirmModalOpen(false)
-      navigate('/historico')
+        setIsConfirmModalOpen(false)
+        navigate('/historico')
+      }
     } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.warn('Enfileiramento interrompido pelo usuário:', err)
+        toast({
+          title: 'Enfileiramento interrompido',
+          description: `O processo foi cancelado. ${enfileiradosCount} de ${destinatariosFinais.length} destinatários foram registrados com segurança sem perda de dados.`,
+          className: 'bg-amber-50 border-amber-200 text-amber-900',
+        })
+        if (createdCampId) {
+          // Atualiza a quantidade real de destinatários enfileirados na campanha
+          try {
+            await comunicacoesService.updateCampanha(createdCampId, {
+              quantidade_destinatarios: enfileiradosCount,
+            })
+            if (enfileiradosCount > 0) {
+              await comunicacoesService.triggerProcessarEnvios(createdCampId)
+            }
+          } catch {
+            /* intentionally ignored */
+          }
+        }
+        return
+      }
+
       console.error('Falha ao enfileirar disparo:', err)
+
+      // Diagnóstico detalhado de erro em PT-BR para campos e erros do PocketBase
+      const fieldErrors = extractFieldErrors(err)
+      const fieldErrorKeys = Object.keys(fieldErrors)
+
+      let friendlyDesc =
+        'O servidor está processando muitas requisições simultâneas. O progresso gravado foi preservado de forma segura.'
+
+      if (fieldErrorKeys.length > 0) {
+        const nomesCamposPt: Record<string, string> = {
+          nome: 'Nome da Campanha',
+          assunto: 'Assunto',
+          corpo: 'Conteúdo da mensagem',
+          remetente: 'Remetente',
+          tipo_envio: 'Tipo de Envio',
+          intervalo_segundos: 'Intervalo de envio',
+          quantidade_destinatarios: 'Quantidade de destinatários',
+          status: 'Status',
+          usuario: 'Usuário',
+          anexos: 'Arquivos anexos',
+        }
+        const detalhes = fieldErrorKeys
+          .map((k) => `${nomesCamposPt[k] || k}: ${fieldErrors[k]}`)
+          .join(', ')
+        friendlyDesc = `Dados inválidos no cadastro da campanha: ${detalhes}. Verifique e tente novamente.`
+      }
+
       toast({
         title: 'Falha no enfileiramento',
-        description:
-          'O servidor está processando muitas requisições simultâneas. O progresso foi retido em estado pendente seguro para evitar duplicidades.',
+        description: friendlyDesc,
         variant: 'destructive',
       })
     } finally {
+      abortControllerRef.current = null
       setIsSubmitting(false)
       setEnfileiramentoProgresso(null)
       setRetryStatusMessage(null)
@@ -1906,16 +2039,23 @@ export const ComunicacoesScreen: React.FC = () => {
             )}
 
             <div className="pt-2 flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isSubmitting) setIsConfirmModalOpen(false)
-                }}
-                disabled={isSubmitting}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors border disabled:opacity-40"
-              >
-                Cancelar
-              </button>
+              {isSubmitting ? (
+                <button
+                  type="button"
+                  onClick={handleAbortEnfileiramento}
+                  className="px-4 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200"
+                >
+                  Interromper Enfileiramento
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors border"
+                >
+                  Cancelar
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleConfirmAndSend}

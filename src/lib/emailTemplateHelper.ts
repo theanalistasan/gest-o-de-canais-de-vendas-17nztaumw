@@ -136,67 +136,165 @@ export function buildRolandEmailHtml(
 /**
  * Função utilitária com backoff exponencial e jitter para operações resilientes contra concorrência SQLite/429
  */
+export interface ExecuteWithRetryOptions {
+  maxAttempts?: number
+  initialDelayMs?: number
+  factor?: number
+  maxDelayMs?: number
+  signal?: AbortSignal
+  onRetry?: (attempt: number, error: unknown, delayMs: number, is429: boolean) => void
+}
+
+/**
+ * Extrai o valor do cabeçalho Retry-After em milissegundos se presente no erro/resposta HTTP
+ */
+function extractRetryAfterMs(err: unknown): number | null {
+  if (!err || typeof err !== 'object') return null
+  const errObj = err as Record<string, unknown>
+  const response = (errObj.response || errObj) as Record<string, unknown> | undefined
+  const headers = response?.headers as Record<string, unknown> | Headers | undefined
+
+  let retryAfterHeader: string | null = null
+  if (headers) {
+    if (typeof (headers as Headers).get === 'function') {
+      retryAfterHeader =
+        (headers as Headers).get('retry-after') || (headers as Headers).get('Retry-After')
+    } else if (typeof headers === 'object') {
+      const hObj = headers as Record<string, unknown>
+      retryAfterHeader = (hObj['retry-after'] || hObj['Retry-After']) as string | null
+    }
+  }
+
+  if (!retryAfterHeader && typeof errObj.retryAfter === 'number') {
+    return Math.max(500, Math.round(errObj.retryAfter * 1000))
+  }
+
+  if (retryAfterHeader) {
+    const parsedSec = parseFloat(retryAfterHeader)
+    if (!Number.isNaN(parsedSec) && parsedSec > 0) {
+      return Math.max(500, Math.round(parsedSec * 1000))
+    }
+    const parsedDate = Date.parse(retryAfterHeader)
+    if (!Number.isNaN(parsedDate)) {
+      const diffMs = parsedDate - Date.now()
+      if (diffMs > 0) return diffMs
+    }
+  }
+
+  return null
+}
+
+/**
+ * Identifica se o erro é explicitamente um status 429 Too Many Requests
+ */
+export function is429Error(err: unknown): boolean {
+  if (!err) return false
+  const errObj = err as Record<string, unknown>
+  if (
+    errObj.status === 429 ||
+    (errObj.response && (errObj.response as Record<string, unknown>).status === 429)
+  ) {
+    return true
+  }
+  const errStr = String(err).toLowerCase()
+  return (
+    errStr.includes('429') || errStr.includes('too many requests') || errStr.includes('rate limit')
+  )
+}
+
+/**
+ * Função utilitária com backoff adaptativo e jitter para operações resilientes contra concorrência SQLite/429
+ * Respeita Retry-After quando presente, backoff progressivo de 429 (1s -> 2s -> 4s -> 8s cap 30s) e AbortSignal.
+ */
 export async function executeWithRetry<T>(
   operation: (attempt: number) => Promise<T>,
-  options: {
-    maxAttempts?: number
-    initialDelayMs?: number
-    factor?: number
-    onRetry?: (attempt: number, error: unknown, delayMs: number) => void
-  } = {},
+  options: ExecuteWithRetryOptions = {},
 ): Promise<T> {
-  const maxAttempts = options.maxAttempts ?? 4
-  const initialDelay = options.initialDelayMs ?? 350
-  const factor = options.factor ?? 1.8
+  const maxAttempts = options.maxAttempts ?? 5
+  const initialDelay = options.initialDelayMs ?? 400
+  const factor = options.factor ?? 2
+  const maxDelayMs = options.maxDelayMs ?? 30000
+  const signal = options.signal
 
   let lastError: unknown
   let currentDelay = initialDelay
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (signal?.aborted) {
+      throw new DOMException('Operação cancelada pelo usuário', 'AbortError')
+    }
+
     try {
       return await operation(attempt)
     } catch (err: unknown) {
       lastError = err
+
+      if (signal?.aborted) {
+        throw new DOMException('Operação cancelada pelo usuário', 'AbortError')
+      }
 
       // Se for a última tentativa, propaga o erro
       if (attempt === maxAttempts) {
         break
       }
 
-      // Detecta se é erro transiente ou 429/lock/network
+      const isRateLimit = is429Error(err)
       const errStr = String(err).toLowerCase()
-      const isTransient =
-        errStr.includes('429') ||
-        errStr.includes('too many') ||
-        errStr.includes('busy') ||
-        errStr.includes('locked') ||
-        errStr.includes('database is locked') ||
-        errStr.includes('timeout') ||
-        errStr.includes('network') ||
-        errStr.includes('failed to fetch') ||
-        errStr.includes('connection') ||
-        errStr.includes('cannot connect') ||
-        errStr.includes('autocancelled')
 
-      // Se for erro de validação terminal (ex: 400 Bad Request por campo faltante, 403 Forbidden estrito), não repete
+      // Se for erro de validação terminal (ex: 400 Bad Request por campo faltante, 403 Forbidden estrito, 404), não repete
       const isTerminalAuthOrValidation =
-        (errStr.includes('403') || errStr.includes('forbidden') || errStr.includes('permissão')) &&
-        !errStr.includes('locked')
+        (errStr.includes('403') ||
+          errStr.includes('forbidden') ||
+          errStr.includes('permissão') ||
+          errStr.includes('validation_') ||
+          (errStr.includes('400') && !errStr.includes('locked'))) &&
+        !isRateLimit
 
       if (isTerminalAuthOrValidation) {
         throw err
       }
 
-      // Jitter aleatório +/- 20%
-      const jitter = (Math.random() - 0.5) * 0.4 * currentDelay
-      const waitTime = Math.max(100, Math.round(currentDelay + jitter))
+      // Calcula tempo de espera adaptativo
+      let waitTime: number
+      const retryAfterMs = extractRetryAfterMs(err)
 
-      if (options.onRetry) {
-        options.onRetry(attempt, err, waitTime)
+      if (retryAfterMs !== null) {
+        waitTime = Math.min(retryAfterMs, maxDelayMs)
+      } else if (isRateLimit) {
+        // Backoff progressivo específico para 429: 1s -> 2s -> 4s -> 8s -> 16s (cap ~30s)
+        const base429 = Math.min(1000 * Math.pow(2, attempt - 1), maxDelayMs)
+        const jitter = (Math.random() - 0.5) * 0.3 * base429
+        waitTime = Math.max(800, Math.round(base429 + jitter))
+      } else {
+        // Outros erros transientes (lock, network)
+        const jitter = (Math.random() - 0.5) * 0.4 * currentDelay
+        waitTime = Math.max(200, Math.min(Math.round(currentDelay + jitter), maxDelayMs))
+        currentDelay = Math.min(Math.round(currentDelay * factor), maxDelayMs)
       }
 
-      await new Promise((resolve) => setTimeout(resolve, waitTime))
-      currentDelay = Math.round(currentDelay * factor)
+      if (options.onRetry) {
+        options.onRetry(attempt, err, waitTime, isRateLimit)
+      }
+
+      // Espera respeitando o AbortSignal
+      await new Promise<void>((resolve, reject) => {
+        let timer: ReturnType<typeof setTimeout> | null = null
+        const onAbort = () => {
+          if (timer) clearTimeout(timer)
+          reject(new DOMException('Operação cancelada pelo usuário', 'AbortError'))
+        }
+
+        if (signal) {
+          signal.addEventListener('abort', onAbort, { once: true })
+        }
+
+        timer = setTimeout(() => {
+          if (signal) {
+            signal.removeEventListener('abort', onAbort)
+          }
+          resolve()
+        }, waitTime)
+      })
     }
   }
 
