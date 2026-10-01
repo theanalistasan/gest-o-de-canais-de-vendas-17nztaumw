@@ -219,7 +219,21 @@ export const RevendasScreen: React.FC = () => {
     handleStickyScroll,
   } = useFloatingHorizontalScroll({
     tableContainerRef,
-    deps: [sortedRevendas.length, currentPage, perPage, isLoading],
+    deps: [
+      sortedRevendas.length,
+      currentPage,
+      perPage,
+      isLoading,
+      searchCodigo,
+      searchNome,
+      filterCidade,
+      filterSegmento,
+      filterEstado,
+      filterInside,
+      filterResponsavel,
+      filterCanal,
+      filterStatus,
+    ],
   })
 
   // Paginação
@@ -738,7 +752,7 @@ export const RevendasScreen: React.FC = () => {
       {/* TABELA DE REVENDAS */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden relative">
         <div ref={tableContainerRef} onScroll={handleTableScroll} className="overflow-x-auto">
-          <table className="w-full text-left text-xs min-w-[950px]">
+          <table className="w-full text-left text-xs min-w-[1200px]">
             <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
               <tr>
                 <th
@@ -775,14 +789,14 @@ export const RevendasScreen: React.FC = () => {
                     )}
                   </div>
                 </th>
-                <th className="py-3 px-4">Segmento</th>
-                <th className="py-3 px-4">Inside Sales</th>
-                <th className="py-3 px-4">Responsável</th>
-                <th className="py-3 px-4">Canal Faturamento</th>
-                <th className="py-3 px-4">UF</th>
+                <th className="py-3 px-4 whitespace-nowrap">Segmento</th>
+                <th className="py-3 px-4 whitespace-nowrap">Inside Sales</th>
+                <th className="py-3 px-4 whitespace-nowrap">Responsável</th>
+                <th className="py-3 px-4 whitespace-nowrap">Canal Faturamento</th>
+                <th className="py-3 px-4 whitespace-nowrap">UF</th>
                 <th
                   onClick={() => handleSort('cidade')}
-                  className="py-3 px-4 cursor-pointer hover:text-slate-800 select-none"
+                  className="py-3 px-4 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
                 >
                   <div className="flex items-center gap-1">
                     <span>Cidade</span>
@@ -797,8 +811,8 @@ export const RevendasScreen: React.FC = () => {
                     )}
                   </div>
                 </th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Ações</th>
+                <th className="py-3 px-4 whitespace-nowrap">Status</th>
+                <th className="py-3 px-4 text-right whitespace-nowrap">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -828,7 +842,7 @@ export const RevendasScreen: React.FC = () => {
                         <span className="text-slate-400 italic">Sem cód.</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 font-semibold text-slate-900">
+                    <td className="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
                       <Link
                         to={`/revendas/${r.id}`}
                         className="hover:text-blue-600 inline-flex items-center gap-1.5"
@@ -836,20 +850,24 @@ export const RevendasScreen: React.FC = () => {
                         <span>{r.nome}</span>
                       </Link>
                     </td>
-                    <td className="py-3 px-4 text-slate-600">{r.expand?.segmento?.nome || '—'}</td>
-                    <td className="py-3 px-4 text-slate-600">
+                    <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                      {r.expand?.segmento?.nome || '—'}
+                    </td>
+                    <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                       {r.expand?.inside_sales?.nome || '—'}
                     </td>
-                    <td className="py-3 px-4 text-slate-600">
+                    <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                       {r.expand?.responsavel?.nome || '—'}
                     </td>
-                    <td className="py-3 px-4 text-slate-600">
+                    <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                       {r.expand?.canal_faturamento?.nome || '—'}
                     </td>
-                    <td className="py-3 px-4 text-slate-600 font-medium">
+                    <td className="py-3 px-4 text-slate-600 font-medium whitespace-nowrap">
                       {r.expand?.estado?.uf || '—'}
                     </td>
-                    <td className="py-3 px-4 text-slate-600">{r.cidade || '—'}</td>
+                    <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                      {r.cidade || '—'}
+                    </td>
                     <td className="py-3 px-4 whitespace-nowrap">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase bg-blue-50 text-blue-700 border border-blue-200">
                         {r.expand?.status?.nome || 'Ativa'}

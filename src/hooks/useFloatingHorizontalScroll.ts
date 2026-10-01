@@ -80,13 +80,15 @@ export function useFloatingHorizontalScroll({
       bottomOffset = Math.max(0, viewportHeight - footerRect.top)
     }
 
-    // A barra sticky só deve ficar visível se o contêiner da tabela estiver visível na tela
-    // E o fundo da tabela estiver ABAIXO do ponto onde a barra sticky fica ancorada
+    // A barra sticky deve permanecer visível sempre que houver overflow horizontal ativo
+    // e o container estiver visível na janela (interseção vertical com a área útil),
+    // sem exigir que o rodapé da tabela esteja abaixo da âncora (o que ocultava a barra
+    // indevidamente em tabelas curtas/paginadas com 10-25 linhas).
     const stickyAnchorY = viewportHeight - bottomOffset
     const tableTopVisible = rect.top < stickyAnchorY
-    const tableBottomBelowAnchor = rect.bottom > stickyAnchorY + 15 // quando o rodapé da tabela passar, a barra nativa já está visível
+    const tableInView = rect.bottom > 0 && tableTopVisible
 
-    const isVisible = tableTopVisible && tableBottomBelowAnchor
+    const isVisible = tableInView
     setStickyVisible(isVisible)
     setStickyBottom(bottomOffset)
     setStickyLeft(rect.left)
@@ -139,6 +141,9 @@ export function useFloatingHorizontalScroll({
         updateScrollMetrics()
       })
       resizeObserver.observe(currentContainer)
+      if (currentContainer.firstElementChild) {
+        resizeObserver.observe(currentContainer.firstElementChild)
+      }
     }
 
     return () => {
