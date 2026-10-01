@@ -69,6 +69,9 @@ export const auxiliaresService = {
   ): Promise<EmailTemplate> {
     return pb.collection('email_templates').update<EmailTemplate>(id, data)
   },
+  async deleteEmailTemplate(id: string): Promise<boolean> {
+    return pb.collection('email_templates').delete(id)
+  },
 
   // Métodos auxiliares específicos usados em criação inline
   async createCargo(data: Partial<Cargo>): Promise<Cargo> {

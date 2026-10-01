@@ -24,8 +24,18 @@ Rua San Jose, nº 780 - Pq Industrial San Jose
 CEP 06715-862 - (11) 3500-2600 Opção 1`
 
 /**
+ * Texto fixo de confidencialidade (PT e EN) exigido no rodapé de toda comunicação enviada
+ */
+export const CONFIDENCIALIDADE_PT =
+  'Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso de pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida pelo sigilo profissional e pela legislação aplicável. Caso você tenha recebido este e-mail por engano, por favor, notifique o remetente e exclua esta mensagem imediatamente. O uso não autorizado dessas informações é proibido e está sujeito às penalidades aplicáveis.'
+
+export const CONFIDENCIALIDADE_EN =
+  'This message (including attachments, if any) is for the exclusive use of persons and entities authorized by Roland DG Brazil, protected by professional secrecy and by law. If you have received this e-mail in error, please notify the sender and delete this message immediately. Unauthorized use of such information is prohibited and subject to applicable penalties.'
+
+/**
  * Constrói o HTML completo compatível com clientes de e-mail (Outlook, Gmail, Apple Mail, Webmail)
- * contendo cabeçalho com logo Roland DG Brasil, corpo da mensagem e fechamento/assinatura oficial.
+ * contendo cabeçalho com logo Roland DG Brasil, corpo da mensagem, fechamento/assinatura oficial
+ * e o rodapé fixo de confidencialidade obrigatório (9-10px, cinza discreto).
  */
 export function buildRolandEmailHtml(
   corpoTextoOuHtml: string,
@@ -78,11 +88,29 @@ export function buildRolandEmailHtml(
 
           <!-- Fechamento / Assinatura Oficial Roland DG -->
           <tr>
-            <td style="padding: 0 32px 28px 32px;">
+            <td style="padding: 0 32px 24px 32px;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-top: 1px solid #e2e8f0; padding-top: 20px;">
                 <tr>
                   <td style="font-size: 13px; line-height: 1.6; color: #475569; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                     ${safeFechamento}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Rodapé Fixo de Confidencialidade (PT / EN) -->
+          <tr>
+            <td style="padding: 0 32px 24px 32px;">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-top: 1px solid #e2e8f0; padding-top: 16px;">
+                <tr>
+                  <td style="font-size: 9.5px; line-height: 1.5; color: #6b7280; text-align: justify; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                    <p style="margin: 0 0 8px 0;">
+                      ${CONFIDENCIALIDADE_PT}
+                    </p>
+                    <p style="margin: 0;">
+                      ${CONFIDENCIALIDADE_EN}
+                    </p>
                   </td>
                 </tr>
               </table>

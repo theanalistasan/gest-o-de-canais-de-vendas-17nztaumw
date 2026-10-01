@@ -98,6 +98,12 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
           const defaultFechamento =
             'Departamento Comercial<br/><br/>Roland DG Brasil Imp e Exp Ltda<br/>Rua San Jose, nº 780 - Pq Industrial San Jose<br/>CEP 06715-862 - (11) 3500-2600 Opção 1'
 
+          const confPT =
+            'Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso de pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida pelo sigilo profissional e pela legislação aplicável. Caso você tenha recebido este e-mail por engano, por favor, notifique o remetente e exclua esta mensagem imediatamente. O uso não autorizado dessas informações é proibido e está sujeito às penalidades aplicáveis.'
+
+          const confEN =
+            'This message (including attachments, if any) is for the exclusive use of persons and entities authorized by Roland DG Brazil, protected by professional secrecy and by law. If you have received this e-mail in error, please notify the sender and delete this message immediately. Unauthorized use of such information is prohibited and subject to applicable penalties.'
+
           htmlFinal =
             '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">' +
             '<html xmlns="http://www.w3.org/1999/xhtml" lang="pt-BR">' +
@@ -126,12 +132,23 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
             corpoFormatado +
             '</td></tr>' +
             '<!-- Fechamento fixo Roland DG -->' +
-            '<tr><td style="padding:0 32px 28px 32px;">' +
+            '<tr><td style="padding:0 32px 24px 32px;">' +
             '<div style="border-top:1px solid #e2e8f0;padding-top:20px;font-size:13px;line-height:1.6;color:#475569;">' +
             defaultFechamento +
             '</div>' +
             '</td></tr>' +
-            '<!-- Rodape -->' +
+            '<!-- Rodape Fixo de Confidencialidade (PT/EN) -->' +
+            '<tr><td style="padding:0 32px 24px 32px;">' +
+            '<div style="border-top:1px solid #e2e8f0;padding-top:16px;font-size:9.5px;line-height:1.5;color:#6b7280;text-align:justify;">' +
+            '<p style="margin:0 0 8px 0;">' +
+            confPT +
+            '</p>' +
+            '<p style="margin:0;">' +
+            confEN +
+            '</p>' +
+            '</div>' +
+            '</td></tr>' +
+            '<!-- Rodape Institucional -->' +
             '<tr><td style="padding:16px 32px;background-color:#f1f5f9;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#64748b;line-height:1.5;">' +
             'Roland DG Brasil &bull; Todos os direitos reservados.<br />Mensagem automática enviada através do canal autorizado.' +
             '</td></tr>' +

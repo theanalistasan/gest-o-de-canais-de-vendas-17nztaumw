@@ -1199,6 +1199,25 @@ export const HistoricoScreen: React.FC = () => {
                         )}
                     </div>
 
+                    {/* Rodapé Fixo de Confidencialidade (PT / EN) */}
+                    <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50 text-[10px] leading-relaxed text-slate-500 text-justify space-y-1.5 font-sans">
+                      <p className="m-0">
+                        Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso
+                        de pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida
+                        pelo sigilo profissional e pela legislação aplicável. Caso você tenha
+                        recebido este e-mail por engano, por favor, notifique o remetente e exclua
+                        esta mensagem imediatamente. O uso não autorizado dessas informações é
+                        proibido e está sujeito às penalidades aplicáveis.
+                      </p>
+                      <p className="m-0">
+                        This message (including attachments, if any) is for the exclusive use of
+                        persons and entities authorized by Roland DG Brazil, protected by
+                        professional secrecy and by law. If you have received this e-mail in error,
+                        please notify the sender and delete this message immediately. Unauthorized
+                        use of such information is prohibited and subject to applicable penalties.
+                      </p>
+                    </div>
+
                     <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-center text-[10px] text-slate-400">
                       Roland DG Brasil • Mensagem registrada e auditada.
                     </div>

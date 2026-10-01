@@ -277,8 +277,18 @@ export const ComunicacoesScreen: React.FC = () => {
     }
   }
 
-  // Salvar como Modelo / Template
-  const handleSaveTemplate = async () => {
+  // Controle do modal de Salvar Modelo
+  const [isSaveModelModalOpen, setIsSaveModelModalOpen] = useState(false)
+  const [saveModelNome, setSaveModelNome] = useState('')
+  const [saveModelConflict, setSaveModelConflict] = useState<EmailTemplate | null>(null)
+  const [isSavingModel, setIsSavingModel] = useState(false)
+
+  // Controle do modal de Excluir Modelo
+  const [templateToDelete, setTemplateToDelete] = useState<EmailTemplate | null>(null)
+  const [isDeletingModel, setIsDeletingModel] = useState(false)
+
+  // Abertura do modal para Salvar Modelo / Template
+  const handleOpenSaveTemplateModal = () => {
     if (!user || !canWrite) {
       toast({
         title: 'Acesso negado',
@@ -287,11 +297,7 @@ export const ComunicacoesScreen: React.FC = () => {
       })
       return
     }
-    const templateNome =
-      nomeCampanha.trim() || assunto.trim() || `Modelo ${new Date().toLocaleDateString('pt-BR')}`
-    const templateAssunto = assunto.trim() || 'Sem assunto'
     const templateCorpo = corpo.trim()
-
     if (!templateCorpo) {
       toast({
         title: 'Corpo vazio',
@@ -301,18 +307,54 @@ export const ComunicacoesScreen: React.FC = () => {
       return
     }
 
-    setIsSubmitting(true)
+    // Sugere nome baseado no assunto ou no nome do modelo atualmente carregado
+    const currentTmpl = selectedTemplateId
+      ? templates.find((t) => t.id === selectedTemplateId)
+      : null
+    const initialNome = currentTmpl?.nome || assunto.trim() || nomeCampanha.trim() || ''
+    setSaveModelNome(initialNome)
+    setSaveModelConflict(null)
+    setIsSaveModelModalOpen(true)
+  }
+
+  // Efetivar a gravação do modelo com validação de nome e tratamento de sobrescrita
+  const handleConfirmSaveTemplate = async (forceOverwrite = false) => {
+    const nomeLimpo = saveModelNome.trim()
+    if (!nomeLimpo) {
+      toast({
+        title: 'Nome obrigatório',
+        description: 'Por favor, informe um nome para o modelo antes de salvar.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Verificar se existe conflito de nome
+    const conflict = templates.find((t) => t.nome.toLowerCase() === nomeLimpo.toLowerCase())
+    if (conflict && !forceOverwrite) {
+      // Se estamos editando o próprio modelo já carregado com o mesmo nome, atualiza sem conflito
+      if (selectedTemplateId && conflict.id === selectedTemplateId) {
+        // pode seguir diretamente
+      } else {
+        setSaveModelConflict(conflict)
+        return
+      }
+    }
+
+    setIsSavingModel(true)
     try {
       const templateData = {
-        nome: templateNome,
-        assunto: templateAssunto,
-        corpo: templateCorpo,
+        nome: nomeLimpo,
+        assunto: assunto.trim() || 'Sem assunto',
+        corpo: corpo.trim(),
       }
 
       let savedTmpl: EmailTemplate
-      if (selectedTemplateId) {
+      const targetId = conflict ? conflict.id : selectedTemplateId
+
+      if (targetId) {
         savedTmpl = await executeWithRetry(
-          () => auxiliaresService.updateEmailTemplate(selectedTemplateId, templateData),
+          () => auxiliaresService.updateEmailTemplate(targetId, templateData),
           {
             onRetry: (_attempt, _err, delay) => {
               setRetryStatusMessage(
@@ -322,37 +364,24 @@ export const ComunicacoesScreen: React.FC = () => {
           },
         )
       } else {
-        // Tentar buscar se já existe template com mesmo nome
-        const existing = templates.find((t) => t.nome.toLowerCase() === templateNome.toLowerCase())
-        if (existing) {
-          savedTmpl = await executeWithRetry(
-            () => auxiliaresService.updateEmailTemplate(existing.id, templateData),
-            {
-              onRetry: (_attempt, _err, delay) => {
-                setRetryStatusMessage(
-                  `O servidor está processando muitas requisições simultâneas. Aguardando liberação (${Math.round(delay)}ms)…`,
-                )
-              },
+        savedTmpl = await executeWithRetry(
+          () => auxiliaresService.createEmailTemplate(templateData),
+          {
+            onRetry: (_attempt, _err, delay) => {
+              setRetryStatusMessage(
+                `O servidor está processando muitas requisições simultâneas. Aguardando liberação (${Math.round(delay)}ms)…`,
+              )
             },
-          )
-        } else {
-          savedTmpl = await executeWithRetry(
-            () => auxiliaresService.createEmailTemplate(templateData),
-            {
-              onRetry: (_attempt, _err, delay) => {
-                setRetryStatusMessage(
-                  `O servidor está processando muitas requisições simultâneas. Aguardando liberação (${Math.round(delay)}ms)…`,
-                )
-              },
-            },
-          )
-        }
+          },
+        )
       }
 
-      // Atualizar a lista de templates disponível no select do Passo 2
+      // Atualizar lista sem recarregar a página
       const updatedList = await auxiliaresService.getEmailTemplates()
       setTemplates(updatedList)
       setSelectedTemplateId(savedTmpl.id)
+      setIsSaveModelModalOpen(false)
+      setSaveModelConflict(null)
 
       toast({
         title: 'Modelo salvo com sucesso!',
@@ -367,8 +396,54 @@ export const ComunicacoesScreen: React.FC = () => {
         variant: 'destructive',
       })
     } finally {
-      setIsSubmitting(false)
+      setIsSavingModel(false)
       setRetryStatusMessage(null)
+    }
+  }
+
+  // Excluir modelo salvo
+  const handleConfirmDeleteTemplate = async () => {
+    if (!templateToDelete || !canWrite) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Usuários com perfil Consulta não possuem permissão para excluir modelos.',
+        variant: 'destructive',
+      })
+      setTemplateToDelete(null)
+      return
+    }
+
+    const idExcluir = templateToDelete.id
+    const nomeExcluir = templateToDelete.nome
+    setIsDeletingModel(true)
+
+    try {
+      await executeWithRetry(() => auxiliaresService.deleteEmailTemplate(idExcluir))
+
+      // Atualiza lista em memória e no backend sem recarregar a página
+      setTemplates((prev) => prev.filter((t) => t.id !== idExcluir))
+
+      // Se o modelo excluído era o que estava selecionado no select, limpa a referência mantendo o conteúdo
+      if (selectedTemplateId === idExcluir) {
+        setSelectedTemplateId('')
+      }
+
+      toast({
+        title: 'Modelo excluído',
+        description: `O modelo "${nomeExcluir}" foi removido com sucesso. O conteúdo no editor foi preservado.`,
+        className: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+      })
+      setTemplateToDelete(null)
+    } catch (err: unknown) {
+      console.error('Erro ao excluir modelo:', err)
+      toast({
+        title: 'Erro ao excluir modelo',
+        description:
+          'Não foi possível excluir o modelo. Verifique suas permissões e tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsDeletingModel(false)
     }
   }
 
@@ -950,21 +1025,89 @@ export const ComunicacoesScreen: React.FC = () => {
 
             {/* Template Salvo */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Modelo / Template Salvo
-              </label>
-              <select
-                value={selectedTemplateId}
-                onChange={(e) => handleApplyTemplate(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
-              >
-                <option value="">Nenhum (Digitar do zero)</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.nome}
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Modelo / Template Salvo
+                </label>
+                {selectedTemplateId && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTemplateId('')}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 underline"
+                    title="Desvincular modelo atual (conteúdo permanece intacto)"
+                  >
+                    Desvincular
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => handleApplyTemplate(e.target.value)}
+                  className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+                >
+                  <option value="">Nenhum (Digitar do zero)</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.nome}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Botão de exclusão do modelo selecionado (oculto para Consulta/Suporte) */}
+                {canWrite && selectedTemplateId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tmpl = templates.find((t) => t.id === selectedTemplateId)
+                      if (tmpl) setTemplateToDelete(tmpl)
+                    }}
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-slate-200 transition-colors"
+                    title="Excluir o modelo selecionado"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Lista rápida de modelos com opção de carregar e excluir (apenas se houver modelos) */}
+              {templates.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] text-slate-400 font-medium">Modelos salvos:</span>
+                  {templates.map((t) => (
+                    <div
+                      key={t.id}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] border transition-colors ${
+                        selectedTemplateId === t.id
+                          ? 'bg-blue-50 border-blue-300 text-blue-800 font-semibold'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleApplyTemplate(t.id)}
+                        className="truncate max-w-[150px] text-left"
+                        title={`Carregar "${t.nome}"`}
+                      >
+                        {t.nome}
+                      </button>
+                      {canWrite && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setTemplateToDelete(t)
+                          }}
+                          className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors ml-0.5"
+                          title={`Excluir modelo "${t.nome}"`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Remetente */}
@@ -1095,7 +1238,6 @@ export const ComunicacoesScreen: React.FC = () => {
                 </span>
                 <span className="text-[11px] font-medium text-slate-400">Comunicação Oficial</span>
               </div>
-
               {/* Corpo no Preview */}
               <div className="p-5 sm:p-6 text-xs text-slate-700 leading-relaxed space-y-4">
                 <div className="font-semibold text-slate-900 pb-2 border-b border-slate-100">
@@ -1113,12 +1255,30 @@ export const ComunicacoesScreen: React.FC = () => {
                 <div className="pt-4 border-t border-slate-100 text-xs text-slate-600 whitespace-pre-wrap font-sans">
                   {fechamento}
                 </div>
-              </div>
 
+                {/* Rodapé Fixo de Confidencialidade (PT / EN) */}
+                <div className="pt-4 border-t border-slate-100 text-[10px] leading-relaxed text-slate-500 text-justify space-y-1.5 font-sans">
+                  <p className="m-0">
+                    Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso de
+                    pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida pelo
+                    sigilo profissional e pela legislação aplicável. Caso você tenha recebido este
+                    e-mail por engano, por favor, notifique o remetente e exclua esta mensagem
+                    imediatamente. O uso não autorizado dessas informações é proibido e está sujeito
+                    às penalidades aplicáveis.
+                  </p>
+                  <p className="m-0">
+                    This message (including attachments, if any) is for the exclusive use of persons
+                    and entities authorized by Roland DG Brazil, protected by professional secrecy
+                    and by law. If you have received this e-mail in error, please notify the sender
+                    and delete this message immediately. Unauthorized use of such information is
+                    prohibited and subject to applicable penalties.
+                  </p>
+                </div>
+              </div>
               {/* Rodapé Oficial no Preview */}
               <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 text-center text-[11px] text-slate-400">
                 Roland DG Brasil • Todos os direitos reservados.
-              </div>
+              </div>{' '}
             </div>
           </div>
 
@@ -1350,12 +1510,12 @@ export const ComunicacoesScreen: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleSaveTemplate}
-                  disabled={isSubmitting}
+                  onClick={handleOpenSaveTemplateModal}
+                  disabled={isSubmitting || isSavingModel}
                   className="px-4 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200 flex items-center gap-1.5 disabled:opacity-50"
-                  title="Salva na coleção de modelos reutilizáveis sem sair da tela"
+                  title="Salva na coleção de modelos reutilizáveis pedindo o nome"
                 >
-                  {isSubmitting ? (
+                  {isSavingModel ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <Sparkles className="h-3.5 w-3.5" />
@@ -1465,7 +1625,6 @@ export const ComunicacoesScreen: React.FC = () => {
                       Comunicação Oficial
                     </span>
                   </div>
-
                   {/* Corpo com placeholders resolvidos para o 1º contato */}
                   <div className="p-5 text-xs text-slate-700 leading-relaxed font-sans space-y-4">
                     <div className="whitespace-pre-wrap">
@@ -1483,12 +1642,30 @@ export const ComunicacoesScreen: React.FC = () => {
                     <div className="pt-4 border-t border-slate-100 text-xs text-slate-600 whitespace-pre-wrap font-sans">
                       {fechamento}
                     </div>
-                  </div>
 
+                    {/* Rodapé Fixo de Confidencialidade (PT / EN) */}
+                    <div className="pt-4 border-t border-slate-100 text-[10px] leading-relaxed text-slate-500 text-justify space-y-1.5 font-sans">
+                      <p className="m-0">
+                        Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso
+                        de pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida
+                        pelo sigilo profissional e pela legislação aplicável. Caso você tenha
+                        recebido este e-mail por engano, por favor, notifique o remetente e exclua
+                        esta mensagem imediatamente. O uso não autorizado dessas informações é
+                        proibido e está sujeito às penalidades aplicáveis.
+                      </p>
+                      <p className="m-0">
+                        This message (including attachments, if any) is for the exclusive use of
+                        persons and entities authorized by Roland DG Brazil, protected by
+                        professional secrecy and by law. If you have received this e-mail in error,
+                        please notify the sender and delete this message immediately. Unauthorized
+                        use of such information is prohibited and subject to applicable penalties.
+                      </p>
+                    </div>
+                  </div>
                   {/* Rodapé institucional */}
                   <div className="px-5 py-2.5 bg-slate-50 border-t border-slate-200 text-center text-[10px] text-slate-400">
                     Roland DG Brasil • Todos os direitos reservados.
-                  </div>
+                  </div>{' '}
                 </div>
 
                 <p className="text-[11px] text-slate-400 italic">
@@ -1576,12 +1753,16 @@ export const ComunicacoesScreen: React.FC = () => {
                   <>
                     <button
                       type="button"
-                      onClick={handleSaveTemplate}
-                      disabled={isSubmitting}
+                      onClick={handleOpenSaveTemplateModal}
+                      disabled={isSubmitting || isSavingModel}
                       className="px-4 py-2.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200 flex items-center gap-1.5 disabled:opacity-50"
-                      title="Salva na coleção de modelos reutilizáveis sem sair da tela"
+                      title="Salva na coleção de modelos reutilizáveis pedindo o nome"
                     >
-                      <Sparkles className="h-3.5 w-3.5" />
+                      {isSavingModel ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
                       <span>Salvar como Modelo / Template</span>
                     </button>
                     <button
@@ -1752,6 +1933,179 @@ export const ComunicacoesScreen: React.FC = () => {
                   </>
                 ) : (
                   <span>Sim, Confirmar Disparo</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: SALVAR COMO MODELO / TEMPLATE (PEDE NOME E VALIDA CONFLITOS) */}
+      {isSaveModelModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 scale-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                <Sparkles className="h-4 w-4 text-blue-600" />
+                <span>Salvar como Modelo / Template</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSavingModel) {
+                    setIsSaveModelModalOpen(false)
+                    setSaveModelConflict(null)
+                  }
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nome do Modelo *
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={saveModelNome}
+                  onChange={(e) => {
+                    setSaveModelNome(e.target.value)
+                    if (saveModelConflict) setSaveModelConflict(null)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      handleConfirmSaveTemplate(false)
+                    }
+                  }}
+                  placeholder="Ex: Comunicado Mensal Linha TruVIS"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 font-medium"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Nome único para identificar este modelo na lista de modelos salvos.
+                </p>
+              </div>
+
+              {/* AVISO DE CONFLITO / SOBRESCRITA */}
+              {saveModelConflict && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="block text-xs font-semibold">
+                        Já existe um modelo chamado &quot;{saveModelConflict.nome}&quot;
+                      </strong>
+                      <p className="text-[11px] text-amber-800 mt-0.5">
+                        Deseja sobrescrever (atualizar) o modelo existente com o conteúdo atual ou
+                        prefere cancelar para escolher outro nome?
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-amber-200/60">
+                    <button
+                      type="button"
+                      onClick={() => setSaveModelConflict(null)}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-white rounded border border-slate-200 bg-white"
+                    >
+                      Mudar Nome
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmSaveTemplate(true)}
+                      disabled={isSavingModel}
+                      className="px-3 py-1 text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 rounded shadow-sm flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {isSavingModel && <Loader2 className="h-3 w-3 animate-spin" />}
+                      <span>Sobrescrever Modelo</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {!saveModelConflict && (
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsSaveModelModalOpen(false)}
+                  disabled={isSavingModel}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 disabled:opacity-40"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleConfirmSaveTemplate(false)}
+                  disabled={isSavingModel || !saveModelNome.trim()}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isSavingModel ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  <span>Salvar Modelo</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: CONFIRMAÇÃO DE EXCLUSÃO DE MODELO */}
+      {templateToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 scale-in">
+            <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="h-6 w-6" />
+            </div>
+
+            <div className="text-center">
+              <h3 className="text-base font-bold text-slate-900">
+                Excluir o modelo &quot;{templateToDelete.nome}&quot;?
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Esta ação não pode ser desfeita. O modelo será apagado do banco de dados e removido
+                da lista de templates.
+              </p>
+              <p className="text-[11px] text-slate-400 mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                Se este modelo estiver carregado no editor neste momento, o texto atual permanecerá
+                intacto para você continuar trabalhando.
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-center gap-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isDeletingModel) setTemplateToDelete(null)
+                }}
+                disabled={isDeletingModel}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors border disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteTemplate}
+                disabled={isDeletingModel}
+                className="px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm shadow-red-500/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isDeletingModel ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Excluindo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    <span>Sim, Excluir Modelo</span>
+                  </>
                 )}
               </button>
             </div>
