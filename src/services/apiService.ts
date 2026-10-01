@@ -189,6 +189,27 @@ export const contatosService = {
     })
   },
 
+  async getById(id: string): Promise<Contato> {
+    return pb.collection('contatos').getOne<Contato>(id, {
+      expand:
+        'revenda,cargo,revenda.segmento,revenda.status,revenda.inside_sales,revenda.responsavel,revenda.canal_faturamento,revenda.estado',
+    })
+  },
+
+  async findByEmail(email: string): Promise<Contato | null> {
+    try {
+      const cleanEmail = email.trim()
+      if (!cleanEmail) return null
+      // Procura primeiro pelo e-mail principal, depois secundário
+      const records = await pb.collection('contatos').getList<Contato>(1, 1, {
+        filter: `email = '${cleanEmail}' || email_secundario = '${cleanEmail}'`,
+      })
+      return records.items[0] || null
+    } catch (_) {
+      return null
+    }
+  },
+
   async create(data: Partial<Contato>): Promise<Contato> {
     return pb.collection('contatos').create<Contato>(data)
   },

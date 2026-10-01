@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useTransition, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   History,
   Download,
   Filter,
   RotateCcw,
+  UserCheck,
   CheckCircle2,
   XCircle,
   Clock,
@@ -28,7 +29,12 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import pb from '@/lib/pocketbase/client'
-import { comunicacoesService, auxiliaresService, revendasService } from '@/services/apiService'
+import {
+  comunicacoesService,
+  auxiliaresService,
+  revendasService,
+  contatosService,
+} from '@/services/apiService'
 import { exportToCSV } from '@/lib/exportCsv'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -69,9 +75,10 @@ export interface EnviosGroup {
 
 export const HistoricoScreen: React.FC = () => {
   const { toast } = useToast()
-  const { canWrite, isAdmin } = useAuth()
+  const { canWrite, isAdmin, isGestor, isSuporte, isConsulta, canCadastros } = useAuth()
   const [, startTransition] = useTransition()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
 
   const [envios, setEnvios] = useState<Envio[]>([])
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
@@ -177,7 +184,7 @@ export const HistoricoScreen: React.FC = () => {
   // Helper para obter a revenda do envio
   const getRevendaDoEnvio = (
     e: Envio,
-  ): { id: string; nome: string; codigo?: string; isUnassigned: boolean } => {
+  ): { id: string; nome: string; codigo?: string; isUnassigned: boolean; realId?: string } => {
     const revId = e.revenda || e.expand?.revenda?.id
     const revNome = e.nome_revenda || e.expand?.revenda?.nome
     const revCodigo = e.codigo_revenda || e.expand?.revenda?.codigo
@@ -188,10 +195,84 @@ export const HistoricoScreen: React.FC = () => {
 
     return {
       id: revId || `rev_${revNome}`,
+      realId: revId || undefined,
       nome: revNome || 'Revenda não identificada',
       codigo: revCodigo || undefined,
       isUnassigned: false,
     }
+  }
+
+  // Navegar para edição de contato: busca ID ou busca contato por e-mail
+  const handleClickContato = async (env: Envio) => {
+    if (isConsulta) return
+    const contatoId = env.contato || env.expand?.contato?.id
+    if (contatoId) {
+      navigate(`/contatos?editContatoId=${encodeURIComponent(contatoId)}`)
+      return
+    }
+
+    const email = env.email_utilizado?.trim()
+    if (email) {
+      try {
+        const found = await contatosService.findByEmail(email)
+        if (found && found.id) {
+          navigate(`/contatos?editContatoId=${encodeURIComponent(found.id)}`)
+          return
+        }
+      } catch (err) {
+        console.warn('Erro ao buscar contato por email:', err)
+      }
+    }
+
+    toast({
+      title: 'Registro não encontrado',
+      description: 'O contato pode ter sido excluído da base.',
+      variant: 'destructive',
+    })
+  }
+
+  // Navegar para edição de revenda
+  const handleClickRevenda = async (env: Envio) => {
+    if (isConsulta) return
+    const revId = env.revenda || env.expand?.revenda?.id
+    if (revId) {
+      // Verificar se a revenda ainda existe
+      const existe = revendasMap.has(revId)
+      if (existe) {
+        navigate(`/revendas?editRevendaId=${encodeURIComponent(revId)}`)
+        return
+      }
+      try {
+        const r = await revendasService.getById(revId)
+        if (r && r.id) {
+          navigate(`/revendas?editRevendaId=${encodeURIComponent(r.id)}`)
+          return
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+    }
+
+    // Tentar localizar por código ou nome caso o ID direto não esteja disponível
+    const cod = env.codigo_revenda || env.expand?.revenda?.codigo
+    const nome = env.nome_revenda || env.expand?.revenda?.nome
+    if (cod || nome) {
+      const match = revendas.find(
+        (r) =>
+          (cod && r.codigo && r.codigo.toLowerCase() === cod.toLowerCase()) ||
+          (nome && r.nome && r.nome.toLowerCase() === nome.toLowerCase()),
+      )
+      if (match) {
+        navigate(`/revendas?editRevendaId=${encodeURIComponent(match.id)}`)
+        return
+      }
+    }
+
+    toast({
+      title: 'Registro não encontrado',
+      description: 'A revenda pode ter sido excluída da base.',
+      variant: 'destructive',
+    })
   }
 
   // Filtragem
@@ -442,11 +523,13 @@ export const HistoricoScreen: React.FC = () => {
 
   // Executar reenvio individual confirmado
   const handleConfirmReenviar = async () => {
-    if (!envioParaReenviar || !canWrite) {
+    if (!envioParaReenviar) return
+    if (!isAdmin && !isGestor) {
       toast({
         title: 'Ação não permitida',
-        description:
-          'Usuários com perfil Consulta não possuem permissão para reenviar comunicações.',
+        description: isSuporte
+          ? 'Usuários com perfil Suporte não possuem permissão para disparar/reenviar comunicações.'
+          : 'Usuários com perfil Consulta não possuem permissão para reenviar comunicações.',
         variant: 'destructive',
       })
       return
@@ -470,18 +553,37 @@ export const HistoricoScreen: React.FC = () => {
     )
 
     try {
-      // 1. Atualizar o envio existente para 'Pendente' para ser reprocessado
+      // 1. Reler o contato atualizado do banco para obter o e-mail mais recente
+      let emailAtualizado = alvo.email_utilizado
+      let nomeContatoAtualizado = alvo.nome_contato
+
+      const contatoId = alvo.contato || alvo.expand?.contato?.id
+      if (contatoId) {
+        try {
+          const cRec = await contatosService.getById(contatoId)
+          if (cRec) {
+            if (cRec.email) emailAtualizado = cRec.email
+            if (cRec.nome) nomeContatoAtualizado = cRec.nome
+          }
+        } catch (cErr) {
+          console.warn('Contato não encontrado no banco, usando snapshot do envio:', cErr)
+        }
+      }
+
+      // 2. Atualizar o envio existente: e-mail atualizado, Pendente, limpar erro
       await pb.collection('envios').update(alvo.id, {
+        email_utilizado: emailAtualizado,
+        nome_contato: nomeContatoAtualizado,
         status: 'Pendente',
         erro: false,
         sucesso: false,
         mensagem_erro: '',
       })
 
-      // 2. Disparar processamento imediato no backend para este envio específico
+      // 3. Disparar processamento imediato no backend para este envio específico
       const res = await comunicacoesService.triggerProcessarEnvios(alvo.campanha, alvo.id)
 
-      // 3. Buscar o registro atualizado do banco para refletir a resposta exata do servidor
+      // 4. Buscar o registro atualizado do banco para refletir a resposta exata do servidor
       const envioAtualizado = await comunicacoesService.getEnvioById(alvo.id)
 
       setEnvios((prev) => prev.map((item) => (item.id === alvo.id ? envioAtualizado : item)))
@@ -493,7 +595,7 @@ export const HistoricoScreen: React.FC = () => {
       if (envioAtualizado.status === 'Enviado') {
         toast({
           title: 'Mensagem reenviada com sucesso!',
-          description: `Disparo entregue para ${alvo.email_utilizado}.`,
+          description: `Disparo entregue para ${emailAtualizado}.`,
           variant: 'default',
         })
       } else {
@@ -1193,16 +1295,38 @@ export const HistoricoScreen: React.FC = () => {
 
                       {/* 3. Contato (destinatário) */}
                       <td className="py-3 px-3 text-slate-800 font-semibold whitespace-nowrap">
-                        {env.nome_contato || env.expand?.contato?.nome || '—'}
+                        {!isConsulta ? (
+                          <button
+                            type="button"
+                            onClick={() => handleClickContato(env)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-semibold text-left transition-colors"
+                            title="Clique para editar este contato"
+                          >
+                            {env.nome_contato || env.expand?.contato?.nome || '—'}
+                          </button>
+                        ) : (
+                          <span>{env.nome_contato || env.expand?.contato?.nome || '—'}</span>
+                        )}
                       </td>
 
                       {/* 4. Revenda */}
                       <td className="py-3 px-3 text-slate-700">
-                        <div className="font-medium text-slate-900">
-                          {env.nome_revenda || env.expand?.revenda?.nome || '—'}
-                        </div>
+                        {!isConsulta && (env.nome_revenda || env.expand?.revenda?.nome) ? (
+                          <button
+                            type="button"
+                            onClick={() => handleClickRevenda(env)}
+                            className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left transition-colors block"
+                            title="Clique para editar esta revenda"
+                          >
+                            {env.nome_revenda || env.expand?.revenda?.nome}
+                          </button>
+                        ) : (
+                          <div className="font-medium text-slate-900">
+                            {env.nome_revenda || env.expand?.revenda?.nome || '—'}
+                          </div>
+                        )}
                         {(env.codigo_revenda || env.expand?.revenda?.codigo) && (
-                          <span className="font-mono text-[10px] text-slate-500">
+                          <span className="font-mono text-[10px] text-slate-500 block">
                             Cód: {env.codigo_revenda || env.expand?.revenda?.codigo}
                           </span>
                         )}
@@ -1264,31 +1388,44 @@ export const HistoricoScreen: React.FC = () => {
                       {/* 10. Ações */}
                       <td className="py-3 px-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
-                          {canWrite && (env.status === 'Erro' || env.status === 'Enviado') && (
+                          {(isAdmin || isGestor) &&
+                            (env.status === 'Erro' || env.status === 'Enviado') && (
+                              <button
+                                type="button"
+                                onClick={() => setEnvioParaReenviar(env)}
+                                disabled={
+                                  reenviandoId === env.id ||
+                                  isReenviandoLote ||
+                                  excluindoId === env.id
+                                }
+                                title={
+                                  env.status === 'Enviado'
+                                    ? 'Reenviar mensagem (já entregue)'
+                                    : 'Reenviar mensagem para este destinatário'
+                                }
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-40 ${
+                                  env.status === 'Enviado'
+                                    ? 'bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 hover:border-sky-300'
+                                    : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300'
+                                }`}
+                              >
+                                {reenviandoId === env.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin text-current" />
+                                ) : (
+                                  <RotateCw className="h-3 w-3 text-current" />
+                                )}
+                                <span>Reenviar</span>
+                              </button>
+                            )}
+
+                          {isSuporte && (env.status === 'Erro' || env.status === 'Enviado') && (
                             <button
                               type="button"
-                              onClick={() => setEnvioParaReenviar(env)}
-                              disabled={
-                                reenviandoId === env.id ||
-                                isReenviandoLote ||
-                                excluindoId === env.id
-                              }
-                              title={
-                                env.status === 'Enviado'
-                                  ? 'Reenviar mensagem (já entregue)'
-                                  : 'Reenviar mensagem para este destinatário'
-                              }
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-40 ${
-                                env.status === 'Enviado'
-                                  ? 'bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 hover:border-sky-300'
-                                  : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300'
-                              }`}
+                              disabled
+                              title="Usuários com perfil Suporte não possuem permissão para disparar/reenviar comunicações"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60"
                             >
-                              {reenviandoId === env.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin text-current" />
-                              ) : (
-                                <RotateCw className="h-3 w-3 text-current" />
-                              )}
+                              <RotateCw className="h-3 w-3 text-slate-400" />
                               <span>Reenviar</span>
                             </button>
                           )}
@@ -1431,24 +1568,45 @@ export const HistoricoScreen: React.FC = () => {
                               <td className="py-2.5 px-3 text-slate-800 font-semibold whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
                                   <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
-                                  <span>
-                                    {env.nome_contato || env.expand?.contato?.nome || '—'}
-                                  </span>
+                                  {!isConsulta ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleClickContato(env)}
+                                      className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-semibold text-left transition-colors"
+                                      title="Clique para editar este contato"
+                                    >
+                                      {env.nome_contato || env.expand?.contato?.nome || '—'}
+                                    </button>
+                                  ) : (
+                                    <span>
+                                      {env.nome_contato || env.expand?.contato?.nome || '—'}
+                                    </span>
+                                  )}
                                 </div>
                               </td>
 
                               {/* 4. Revenda */}
                               <td className="py-2.5 px-3 text-slate-700">
-                                <div className="font-medium text-slate-900">
-                                  {env.nome_revenda || env.expand?.revenda?.nome || '—'}
-                                </div>
+                                {!isConsulta && (env.nome_revenda || env.expand?.revenda?.nome) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleClickRevenda(env)}
+                                    className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left transition-colors block"
+                                    title="Clique para editar esta revenda"
+                                  >
+                                    {env.nome_revenda || env.expand?.revenda?.nome}
+                                  </button>
+                                ) : (
+                                  <div className="font-medium text-slate-900">
+                                    {env.nome_revenda || env.expand?.revenda?.nome || '—'}
+                                  </div>
+                                )}
                                 {(env.codigo_revenda || env.expand?.revenda?.codigo) && (
-                                  <span className="font-mono text-[10px] text-slate-500">
+                                  <span className="font-mono text-[10px] text-slate-500 block">
                                     Cód: {env.codigo_revenda || env.expand?.revenda?.codigo}
                                   </span>
                                 )}
                               </td>
-
                               {/* 5. Canal */}
                               <td className="py-2.5 px-3 whitespace-nowrap">
                                 <span
@@ -1507,7 +1665,7 @@ export const HistoricoScreen: React.FC = () => {
                               {/* 10. Ações */}
                               <td className="py-2.5 px-3 text-right whitespace-nowrap">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  {canWrite &&
+                                  {(isAdmin || isGestor) &&
                                     (env.status === 'Erro' || env.status === 'Enviado') && (
                                       <button
                                         type="button"
@@ -1533,6 +1691,19 @@ export const HistoricoScreen: React.FC = () => {
                                         ) : (
                                           <RotateCw className="h-3 w-3 text-current" />
                                         )}
+                                        <span>Reenviar</span>
+                                      </button>
+                                    )}
+
+                                  {isSuporte &&
+                                    (env.status === 'Erro' || env.status === 'Enviado') && (
+                                      <button
+                                        type="button"
+                                        disabled
+                                        title="Usuários com perfil Suporte não possuem permissão para disparar/reenviar comunicações"
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60"
+                                      >
+                                        <RotateCw className="h-3 w-3 text-slate-400" />
                                         <span>Reenviar</span>
                                       </button>
                                     )}
@@ -2204,10 +2375,27 @@ export const HistoricoScreen: React.FC = () => {
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
-              <div className="flex items-center gap-2">
-                {/* Reenvio no modal de detalhes: disponível tanto para Erro quanto para Enviado */}
-                {canWrite &&
+            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0 flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* 1. Botão 'Editar contato': disponível para perfis com permissão de cadastro (admin, gestor, suporte) */}
+                {canCadastros && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const e = selectedEnvio
+                      setSelectedEnvio(null)
+                      handleClickContato(e)
+                    }}
+                    className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                    title="Editar dados deste contato (ex: corrigir e-mail) antes de reenviar"
+                  >
+                    <UserCheck className="h-3.5 w-3.5" />
+                    <span>Editar Contato</span>
+                  </button>
+                )}
+
+                {/* 2. Botão 'Reenviar': apenas para admin e gestor. Para perfil Suporte, desabilitado com aviso explicativo. Para Consulta, não aparece. */}
+                {(isAdmin || isGestor) &&
                   (selectedEnvio.status === 'Erro' || selectedEnvio.status === 'Enviado') && (
                     <button
                       type="button"
@@ -2216,11 +2404,16 @@ export const HistoricoScreen: React.FC = () => {
                         setEnvioParaReenviar(e)
                       }}
                       disabled={reenviandoId === selectedEnvio.id}
-                      className={`px-4 py-2 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
+                      className={`px-4 py-2 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 shadow-2xs ${
                         selectedEnvio.status === 'Enviado'
                           ? 'bg-sky-600 hover:bg-sky-700'
                           : 'bg-amber-600 hover:bg-amber-700'
                       }`}
+                      title={
+                        selectedEnvio.status === 'Enviado'
+                          ? 'Reenviar mensagem (já entregue)'
+                          : 'Reenviar mensagem (relê o contato do banco e utiliza o e-mail atualizado)'
+                      }
                     >
                       {reenviandoId === selectedEnvio.id ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2235,7 +2428,20 @@ export const HistoricoScreen: React.FC = () => {
                     </button>
                   )}
 
-                {/* Lixeira no modal de detalhes: exclusiva para admin e apenas para Erro */}
+                {isSuporte &&
+                  (selectedEnvio.status === 'Erro' || selectedEnvio.status === 'Enviado') && (
+                    <button
+                      type="button"
+                      disabled
+                      className="px-4 py-2 bg-slate-200 text-slate-400 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed opacity-60"
+                      title="Usuários com perfil Suporte não possuem permissão para disparar/reenviar comunicações"
+                    >
+                      <RotateCw className="h-3.5 w-3.5" />
+                      <span>Reenviar (Restrito a Admin/Gestor)</span>
+                    </button>
+                  )}
+
+                {/* 3. Lixeira no modal de detalhes: exclusiva para admin e apenas para Erro */}
                 {isAdmin && selectedEnvio.status === 'Erro' && (
                   <button
                     type="button"
@@ -2258,7 +2464,7 @@ export const HistoricoScreen: React.FC = () => {
 
               <button
                 onClick={() => setSelectedEnvio(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors ml-auto"
               >
                 Fechar
               </button>
