@@ -27,6 +27,7 @@ import {
   Radio,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import pb from '@/lib/pocketbase/client'
 import { comunicacoesService, auxiliaresService, revendasService } from '@/services/apiService'
 import { exportToCSV } from '@/lib/exportCsv'
 import { useToast } from '@/hooks/use-toast'
@@ -283,10 +284,10 @@ export const HistoricoScreen: React.FC = () => {
         case 'tentativas': {
           // Status Enviado tem sucesso de tentativa única; Erro com mensagem tem tentativa falhada
           const numA =
-            (a as unknown as { tentativas?: number }).tentativas ||
+            (a as unknown as { tentativas?: number }).tentativas ??
             (a.status === 'Erro' ? 1 : a.status === 'Enviado' ? 1 : 0)
           const numB =
-            (b as unknown as { tentativas?: number }).tentativas ||
+            (b as unknown as { tentativas?: number }).tentativas ??
             (b.status === 'Erro' ? 1 : b.status === 'Enviado' ? 1 : 0)
           return (numA - numB) * dirMult
         }
@@ -294,7 +295,7 @@ export const HistoricoScreen: React.FC = () => {
           return 0
       }
 
-      return valA.localeCompare(valB, 'pt-BR') * dirMult
+      return valA.localeCompare(valB, 'pt-BR', { sensitivity: 'base', numeric: true }) * dirMult
     })
   }, [filteredEnvios, sortField, sortDir, revendasMap, canaisMap])
 
@@ -438,7 +439,6 @@ export const HistoricoScreen: React.FC = () => {
 
     try {
       // 1. Atualizar o envio existente para 'Pendente' para ser reprocessado
-      const pb = (await import('@/lib/pocketbase/client')).default
       await pb.collection('envios').update(alvo.id, {
         status: 'Pendente',
         erro: false,
@@ -557,7 +557,6 @@ export const HistoricoScreen: React.FC = () => {
         return
       }
 
-      const pb = (await import('@/lib/pocketbase/client')).default
       // Atualizar todos com erro para Pendente
       for (const e of errosDaCampanha) {
         await pb.collection('envios').update(e.id, {

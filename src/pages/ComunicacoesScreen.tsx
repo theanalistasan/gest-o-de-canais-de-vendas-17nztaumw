@@ -48,6 +48,7 @@ import type {
   StatusRevenda,
   Remetente,
   EmailTemplate,
+  Campanha,
 } from '@/types'
 
 export const ComunicacoesScreen: React.FC = () => {
@@ -2097,10 +2098,7 @@ export const ComunicacoesScreen: React.FC = () => {
                 })}
                 ) para{' '}
                 <strong className="text-slate-900">
-                  {duplicateCampanhaWarning.quantidade_destinatarios ||
-                    duplicateCampanhaWarning.destinatarios_total ||
-                    '—'}{' '}
-                  destinatários
+                  {duplicateCampanhaWarning.quantidade_destinatarios || '—'} destinatários
                 </strong>
                 .
               </p>
