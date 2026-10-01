@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useTransition } from 'react'
+import React, { useState, useEffect, useMemo, useTransition, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   History,
@@ -398,6 +398,139 @@ export const HistoricoScreen: React.FC = () => {
     const start = (currentPage - 1) * perPage
     return sortedEnvios.slice(start, start + perPage)
   }, [sortedEnvios, currentPage, perPage])
+
+  // =========================================================================
+  // BARRA DE ROLAGEM HORIZONTAL FIXA/ESPELHADA (Sticky Scrollbar)
+  // Sincroniza o scrollLeft da tabela principal com uma barra flutuante no rodapé
+  // visível da viewport, permitindo rolar horizontalmente sem descer a página até o fim.
+  // =========================================================================
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const stickyScrollRef = useRef<HTMLDivElement>(null)
+  const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false)
+  const [scrollWidth, setScrollWidth] = useState(0)
+  const [stickyVisible, setStickyVisible] = useState(false)
+  const [stickyBottom, setStickyBottom] = useState(36) // 36px padrão do footer global (h-9)
+  const [stickyLeft, setStickyLeft] = useState(0)
+  const [stickyWidth, setStickyWidth] = useState(0)
+  const isSyncingScroll = useRef(false)
+
+  // Mede as dimensões de overflow horizontal e posição do contêiner da tabela
+  const updateScrollMetrics = useCallback(() => {
+    const container = tableContainerRef.current
+    if (!container) return
+
+    const { clientWidth, scrollWidth: totalScrollWidth } = container
+    const overflow = totalScrollWidth > clientWidth + 2 // margem para arredondamento
+    setHasHorizontalOverflow(overflow)
+    setScrollWidth(totalScrollWidth)
+
+    if (!overflow) {
+      setStickyVisible(false)
+      return
+    }
+
+    // Calcula visibilidade flutuante relativa à viewport
+    const rect = container.getBoundingClientRect()
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight
+
+    // Procura o footer do layout para não sobrepor (footer global tem ~36px de altura)
+    const footerElem = document.querySelector('footer')
+    const footerRect = footerElem ? footerElem.getBoundingClientRect() : null
+    let bottomOffset = 0
+    if (footerRect && footerRect.top < viewportHeight) {
+      bottomOffset = Math.max(0, viewportHeight - footerRect.top)
+    }
+
+    // A barra sticky só deve ficar visível se o contêiner da tabela estiver visível na tela
+    // E o fundo da tabela estiver ABAIXO do ponto onde a barra sticky fica ancorada
+    const stickyAnchorY = viewportHeight - bottomOffset
+    const tableTopVisible = rect.top < stickyAnchorY
+    const tableBottomBelowAnchor = rect.bottom > stickyAnchorY + 15 // quando o rodapé da tabela passar, a barra nativa já está visível
+
+    const isVisible = tableTopVisible && tableBottomBelowAnchor
+    setStickyVisible(isVisible)
+    setStickyBottom(bottomOffset)
+    setStickyLeft(rect.left)
+    setStickyWidth(rect.width)
+  }, [])
+
+  // Sincronização bidirecional de scrollLeft
+  const handleTableScroll = () => {
+    if (isSyncingScroll.current) return
+    isSyncingScroll.current = true
+    if (stickyScrollRef.current && tableContainerRef.current) {
+      stickyScrollRef.current.scrollLeft = tableContainerRef.current.scrollLeft
+    }
+    requestAnimationFrame(() => {
+      isSyncingScroll.current = false
+    })
+  }
+
+  const handleStickyScroll = () => {
+    if (isSyncingScroll.current) return
+    isSyncingScroll.current = true
+    if (tableContainerRef.current && stickyScrollRef.current) {
+      tableContainerRef.current.scrollLeft = stickyScrollRef.current.scrollLeft
+    }
+    requestAnimationFrame(() => {
+      isSyncingScroll.current = false
+    })
+  }
+
+  // Escuta scrolls do container principal, window resize, e redimensionamentos da tabela
+  useEffect(() => {
+    updateScrollMetrics()
+
+    // O elemento <main> do Layout tem classe overflow-y-auto
+    const mainScrollElem = document.querySelector('main')
+
+    const handleScrollOrResize = () => {
+      updateScrollMetrics()
+    }
+
+    window.addEventListener('resize', handleScrollOrResize, { passive: true })
+    window.addEventListener('scroll', handleScrollOrResize, { passive: true })
+    if (mainScrollElem) {
+      mainScrollElem.addEventListener('scroll', handleScrollOrResize, { passive: true })
+    }
+
+    let resizeObserver: ResizeObserver | null = null
+    if (tableContainerRef.current && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        updateScrollMetrics()
+      })
+      resizeObserver.observe(tableContainerRef.current)
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleScrollOrResize)
+      window.removeEventListener('scroll', handleScrollOrResize)
+      if (mainScrollElem) {
+        mainScrollElem.removeEventListener('scroll', handleScrollOrResize)
+      }
+      if (resizeObserver) {
+        resizeObserver.disconnect()
+      }
+    }
+  }, [updateScrollMetrics])
+
+  // Recalcula dimensões ao alterar dados, modo de exibição, filtros ou paginação
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      updateScrollMetrics()
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [
+    sortedEnvios.length,
+    groupBy,
+    groupPage,
+    groupsPerPage,
+    currentPage,
+    perPage,
+    collapsedGroups,
+    isLoading,
+    updateScrollMetrics,
+  ])
 
   const handleSort = (field: HistoricoSortField) => {
     if (sortField === field) {
@@ -934,9 +1067,9 @@ export const HistoricoScreen: React.FC = () => {
       </div>
 
       {/* TABELA DE ENVIOS */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden relative">
+        <div ref={tableContainerRef} onScroll={handleTableScroll} className="overflow-x-auto">
+          <table className="w-full text-left text-xs min-w-[1100px]">
             <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
               <tr>
                 {/* 1. Data/Hora */}
@@ -1541,6 +1674,45 @@ export const HistoricoScreen: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* BARRA DE ROLAGEM HORIZONTAL FIXA/ESPELHADA (Sticky Scrollbar)
+            Visível no rodapé da tela enquanto a tabela ultrapassa a largura e o rodapé da tabela não foi alcançado */}
+        {hasHorizontalOverflow && stickyVisible && (
+          <div
+            style={{
+              position: 'fixed',
+              left: `${stickyLeft}px`,
+              width: `${stickyWidth}px`,
+              bottom: `${stickyBottom}px`,
+              zIndex: 35,
+            }}
+            className="bg-slate-100/95 backdrop-blur-xs border-t border-slate-300 shadow-md py-1 px-1 transition-all"
+            title="Barra de rolagem horizontal rápida (sincronizada)"
+          >
+            <div className="flex items-center justify-between px-2 pb-1 text-[10px] text-slate-500 font-medium">
+              <span className="flex items-center gap-1">
+                <span>↔</span> Rolagem horizontal da tabela de histórico
+              </span>
+              <span className="hidden sm:inline text-slate-400">
+                Arraste para ver colunas à direita
+              </span>
+            </div>
+            <div
+              ref={stickyScrollRef}
+              onScroll={handleStickyScroll}
+              className="overflow-x-auto overflow-y-hidden h-4 cursor-ew-resize"
+              tabIndex={0}
+              aria-label="Barra de rolagem horizontal da tabela"
+            >
+              <div
+                style={{
+                  width: `${scrollWidth}px`,
+                  height: '1px',
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* PAGINAÇÃO */}
         <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
