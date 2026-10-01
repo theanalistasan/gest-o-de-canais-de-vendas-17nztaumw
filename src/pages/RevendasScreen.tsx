@@ -134,9 +134,9 @@ export const RevendasScreen: React.FC = () => {
     loadData()
   }, [])
 
-  // Suporte a abertura automática via ?editRevendaId=<id>
+  // Suporte a abertura automática via ?editRevendaId=<id> ou ?edit=<id>
   useEffect(() => {
-    const editId = searchParams.get('editRevendaId')
+    const editId = searchParams.get('editRevendaId') || searchParams.get('edit')
     if (!editId || isLoading || revendas.length === 0) return
     if (handledEditParamRef.current === editId) return
 

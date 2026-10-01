@@ -167,9 +167,9 @@ export const ContatosScreen: React.FC = () => {
     loadData()
   }, [])
 
-  // Suporte a abertura automática via ?editContatoId=<id>
+  // Suporte a abertura automática via ?editContatoId=<id> ou ?edit=<id>
   useEffect(() => {
-    const editId = searchParams.get('editContatoId')
+    const editId = searchParams.get('editContatoId') || searchParams.get('edit')
     if (!editId || isLoading || contatos.length === 0) return
     if (handledEditParamRef.current === editId) return
 
