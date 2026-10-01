@@ -65,7 +65,7 @@ export function buildRolandEmailHtml(
           
           <!-- Cabeçalho Oficial Roland DG Brasil -->
           <tr>
-            <td style="padding: 28px 32px 20px 32px; background-color: #ffffff; text-align: left; border-bottom: 2px solid #005696;">
+            <td style="padding: 16px 32px; background-color: #ffffff; text-align: left; border-bottom: 2px solid #005696;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
                   <td align="left" valign="middle">

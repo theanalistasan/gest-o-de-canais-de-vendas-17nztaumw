@@ -1356,7 +1356,7 @@ export const ComunicacoesScreen: React.FC = () => {
 
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm max-w-2xl mx-auto">
               {/* Header Roland DG */}
-              <div className="p-4 sm:px-6 border-b-2 border-[#005696] flex items-center justify-between bg-white">
+              <div className="py-4 px-6 sm:px-8 border-b-2 border-[#005696] flex items-center justify-between bg-white">
                 <img
                   src={ROLAND_LOGO_URL}
                   alt="Roland DG Brasil"
@@ -1745,7 +1745,7 @@ export const ComunicacoesScreen: React.FC = () => {
                 {/* Card imitando o e-mail real recebido */}
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                   {/* Cabeçalho Roland DG */}
-                  <div className="p-4 sm:px-6 border-b-2 border-[#005696] flex items-center justify-between bg-white">
+                  <div className="py-4 px-6 sm:px-8 border-b-2 border-[#005696] flex items-center justify-between bg-white">
                     <img
                       src={ROLAND_LOGO_URL}
                       alt="Roland DG Brasil"

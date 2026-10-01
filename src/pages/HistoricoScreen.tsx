@@ -1173,7 +1173,7 @@ export const HistoricoScreen: React.FC = () => {
                   </div>
                   {/* Visualização da mensagem com cabeçalho oficial Roland DG */}
                   <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="p-3 border-b-2 border-[#005696] flex items-center justify-between bg-white">
+                    <div className="py-4 px-4 sm:px-6 border-b-2 border-[#005696] flex items-center justify-between bg-white">
                       <img
                         src={`${(import.meta as unknown as { env: { VITE_POCKETBASE_URL?: string } }).env.VITE_POCKETBASE_URL || ''}/backend/v1/roland-logo.png`}
                         alt="Roland DG Brasil"
@@ -1182,7 +1182,7 @@ export const HistoricoScreen: React.FC = () => {
                           ;(e.target as HTMLElement).style.display = 'none'
                         }}
                       />
-                      <span className="text-[10px] font-semibold text-slate-400">
+                      <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400">
                         Comunicação Oficial Roland DG Brasil
                       </span>
                     </div>

@@ -183,7 +183,7 @@ routerAdd(
             '<tr><td align="center">' +
             '<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:620px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">' +
             '<!-- Header com Logo Roland DG -->' +
-            '<tr><td style="padding:28px 32px 20px 32px;border-bottom:2px solid #005696;">' +
+            '<tr><td style="padding:16px 32px;border-bottom:2px solid #005696;">' +
             '<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"><tr>' +
             '<td align="left" valign="middle">' +
             '<img src="' +
