@@ -29,6 +29,8 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { contatosService, revendasService, auxiliaresService } from '@/services/apiService'
 import { exportToCSV } from '@/lib/exportCsv'
+import { useFloatingHorizontalScroll } from '@/hooks/useFloatingHorizontalScroll'
+import { FloatingHorizontalScrollbar } from '@/components/FloatingHorizontalScrollbar'
 import type {
   Contato,
   Revenda,
@@ -107,11 +109,15 @@ export const ContatosScreen: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false)
   const handledEditParamRef = useRef<string | null>(null)
 
+  // Ref para tabela e barra de rolagem horizontal flutuante
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+
   // Modal Edição Rápida de Meta Financeira da Revenda
   const [metaModalOpen, setMetaModalOpen] = useState(false)
   const [metaModalRevenda, setMetaModalRevenda] = useState<Revenda | null>(null)
   const [metaModalValue, setMetaModalValue] = useState('')
   const [isSavingMeta, setIsSavingMeta] = useState(false)
+
   const [formData, setFormData] = useState({
     revenda: '',
     nome: '',
@@ -637,6 +643,31 @@ export const ContatosScreen: React.FC = () => {
 
   const allCollapsed =
     displayedGroups.length > 0 && displayedGroups.every((g) => !!collapsedGroups[g.groupId])
+
+  // Barra de rolagem horizontal flutuante (Sticky Scrollbar)
+  const {
+    stickyScrollRef,
+    hasHorizontalOverflow,
+    scrollWidth,
+    stickyVisible,
+    stickyBottom,
+    stickyLeft,
+    stickyWidth,
+    handleTableScroll,
+    handleStickyScroll,
+  } = useFloatingHorizontalScroll({
+    tableContainerRef,
+    deps: [
+      sortedContatos.length,
+      groupBy,
+      groupPage,
+      groupsPerPage,
+      currentPage,
+      perPage,
+      collapsedGroups,
+      isLoading,
+    ],
+  })
 
   // Paginação da lista plana
   const totalPages = Math.ceil(sortedContatos.length / perPage) || 1
@@ -1271,9 +1302,9 @@ export const ContatosScreen: React.FC = () => {
       </div>
 
       {/* TABELA DE CONTATOS / RELATÓRIO */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden relative">
+        <div ref={tableContainerRef} onScroll={handleTableScroll} className="overflow-x-auto">
+          <table className="w-full text-left text-xs min-w-[1200px]">
             <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
               <tr>
                 <th className="py-3 px-3 w-10 text-center">Princ.</th>
@@ -1992,6 +2023,19 @@ export const ContatosScreen: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* BARRA DE ROLAGEM HORIZONTAL FIXA/ESPELHADA (Sticky Scrollbar) */}
+        <FloatingHorizontalScrollbar
+          scrollRef={stickyScrollRef}
+          hasHorizontalOverflow={hasHorizontalOverflow}
+          stickyVisible={stickyVisible}
+          scrollWidth={scrollWidth}
+          stickyLeft={stickyLeft}
+          stickyWidth={stickyWidth}
+          stickyBottom={stickyBottom}
+          onScroll={handleStickyScroll}
+          tableLabel="da tabela de contatos"
+        />
 
         {/* PAGINAÇÃO */}
         <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">

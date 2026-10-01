@@ -21,6 +21,8 @@ import { useAuth } from '@/context/AuthContext'
 import { revendasService, auxiliaresService } from '@/services/apiService'
 import { getCidadesPorUf } from '@/services/ibgeService'
 import { exportToCSV } from '@/lib/exportCsv'
+import { useFloatingHorizontalScroll } from '@/hooks/useFloatingHorizontalScroll'
+import { FloatingHorizontalScrollbar } from '@/components/FloatingHorizontalScrollbar'
 import type {
   Revenda,
   Segmento,
@@ -66,6 +68,9 @@ export const RevendasScreen: React.FC = () => {
   // Paginação
   const [currentPage, setCurrentPage] = useState(1)
   const [perPage, setPerPage] = useState<number>(25)
+
+  // Ref para tabela e barra de rolagem horizontal flutuante
+  const tableContainerRef = useRef<HTMLDivElement>(null)
 
   // Modal Nova/Editar Revenda
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -200,6 +205,22 @@ export const RevendasScreen: React.FC = () => {
       return 0
     })
   }, [filteredRevendas, sortField, sortDir])
+
+  // Barra de rolagem horizontal flutuante (Sticky Scrollbar)
+  const {
+    stickyScrollRef,
+    hasHorizontalOverflow,
+    scrollWidth,
+    stickyVisible,
+    stickyBottom,
+    stickyLeft,
+    stickyWidth,
+    handleTableScroll,
+    handleStickyScroll,
+  } = useFloatingHorizontalScroll({
+    tableContainerRef,
+    deps: [sortedRevendas.length, currentPage, perPage, isLoading],
+  })
 
   // Paginação
   const totalPages = Math.ceil(sortedRevendas.length / perPage) || 1
@@ -715,9 +736,9 @@ export const RevendasScreen: React.FC = () => {
       </div>
 
       {/* TABELA DE REVENDAS */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden relative">
+        <div ref={tableContainerRef} onScroll={handleTableScroll} className="overflow-x-auto">
+          <table className="w-full text-left text-xs min-w-[950px]">
             <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
               <tr>
                 <th
@@ -869,6 +890,19 @@ export const RevendasScreen: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* BARRA DE ROLAGEM HORIZONTAL FIXA/ESPELHADA (Sticky Scrollbar) */}
+        <FloatingHorizontalScrollbar
+          scrollRef={stickyScrollRef}
+          hasHorizontalOverflow={hasHorizontalOverflow}
+          stickyVisible={stickyVisible}
+          scrollWidth={scrollWidth}
+          stickyLeft={stickyLeft}
+          stickyWidth={stickyWidth}
+          stickyBottom={stickyBottom}
+          onScroll={handleStickyScroll}
+          tableLabel="da tabela de revendas"
+        />
 
         {/* PAGINAÇÃO */}
         <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
