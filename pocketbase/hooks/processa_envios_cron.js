@@ -96,13 +96,12 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
         } else {
           const corpoFormatado = corpoFinal.replace(/\n/g, '<br/>')
           const defaultFechamento =
-            'Departamento Comercial<br/><br/>Roland DG Brasil Imp e Exp Ltda<br/>Rua San Jose, nº 780 - Pq Industrial San Jose<br/>CEP 06715-862 - (11) 3500-2600 Opção 1'
+            '<strong>Departamento Comercial</strong><br/><br/><strong>Roland DG Brasil Imp e Exp Ltda</strong><br/>Rua San Jose, nº 780 - Pq Industrial San Jose<br/>CEP 06715-862 - (11) 3500-2600 Opção 1'
 
-          const confPT =
-            'Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso de pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida pelo sigilo profissional e pela legislação aplicável. Caso você tenha recebido este e-mail por engano, por favor, notifique o remetente e exclua esta mensagem imediatamente. O uso não autorizado dessas informações é proibido e está sujeito às penalidades aplicáveis.'
+          const direitosReservados = 'Todos os direitos reservados'
 
-          const confEN =
-            'This message (including attachments, if any) is for the exclusive use of persons and entities authorized by Roland DG Brazil, protected by professional secrecy and by law. If you have received this e-mail in error, please notify the sender and delete this message immediately. Unauthorized use of such information is prohibited and subject to applicable penalties.'
+          const confBloco =
+            'Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso de pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida pelo sigilo profissional e pela legislação aplicável. Caso você tenha recebido este e-mail por engano, por favor, notifique o remetente e exclua esta mensagem imediatamente. O uso não autorizado dessas informações é proibido e está sujeito às penalidades aplicáveis. This message (including attachments, if any) is for the exclusive use of persons and entities authorized by Roland DG Brazil, protected by professional secrecy and by law. If you have received this e-mail in error, please notify the sender and delete this message immediately. Unauthorized use of such information is prohibited and subject to applicable penalties.'
 
           htmlFinal =
             '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">' +
@@ -131,21 +130,21 @@ cronAdd('processa_envios', '*/10 * * * *', () => {
             '<tr><td style="padding:32px;font-size:14px;line-height:1.65;color:#334155;">' +
             corpoFormatado +
             '</td></tr>' +
-            '<!-- Fechamento fixo Roland DG -->' +
+            '<!-- Fechamento fixo Roland DG (duas primeiras linhas em negrito) -->' +
             '<tr><td style="padding:0 32px 24px 32px;">' +
             '<div style="border-top:1px solid #e2e8f0;padding-top:20px;font-size:13px;line-height:1.6;color:#475569;">' +
             defaultFechamento +
             '</div>' +
             '</td></tr>' +
-            '<!-- Rodape Fixo de Confidencialidade (PT/EN) -->' +
+            '<!-- Linha Todos os direitos reservados + Aviso de Confidencialidade em Bloco Único (fonte menor ~9.5px cinza discreto) -->' +
             '<tr><td style="padding:0 32px 24px 32px;">' +
-            '<div style="border-top:1px solid #e2e8f0;padding-top:16px;font-size:9.5px;line-height:1.5;color:#6b7280;text-align:justify;">' +
-            '<p style="margin:0 0 8px 0;">' +
-            confPT +
-            '</p>' +
-            '<p style="margin:0;">' +
-            confEN +
-            '</p>' +
+            '<div style="border-top:1px solid #e2e8f0;padding-top:16px;">' +
+            '<div style="font-size:11px;font-weight:600;color:#64748b;padding-bottom:8px;">' +
+            direitosReservados +
+            '</div>' +
+            '<div style="font-size:9.5px;line-height:1.5;color:#6b7280;text-align:justify;">' +
+            confBloco +
+            '</div>' +
             '</div>' +
             '</td></tr>' +
             '<!-- Rodape Institucional -->' +

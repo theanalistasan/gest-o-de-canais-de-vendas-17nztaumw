@@ -1199,23 +1199,34 @@ export const HistoricoScreen: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Rodapé Fixo de Confidencialidade (PT / EN) */}
-                    <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50 text-[10px] leading-relaxed text-slate-500 text-justify space-y-1.5 font-sans">
-                      <p className="m-0">
+                    {/* Bloco de Fechamento / Assinatura Oficial Roland DG */}
+                    <div className="px-4 py-3 border-t border-slate-100 text-xs text-slate-600 font-sans leading-relaxed">
+                      <div className="font-bold text-slate-800">Departamento Comercial</div>
+                      <div className="font-bold text-slate-800 mt-1">
+                        Roland DG Brasil Imp e Exp Ltda
+                      </div>
+                      <div>Rua San Jose, nº 780 - Pq Industrial San Jose</div>
+                      <div>CEP 06715-862 - (11) 3500-2600 Opção 1</div>
+                    </div>
+
+                    {/* Linha Todos os direitos reservados + Aviso de Confidencialidade em Bloco Único (fonte menor 9.5-10px cinza) */}
+                    <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50 font-sans">
+                      <div className="text-[11px] font-semibold text-slate-600 mb-1">
+                        Todos os direitos reservados
+                      </div>
+                      <div className="text-[9.5px] leading-relaxed text-slate-500 text-justify">
                         Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso
                         de pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida
                         pelo sigilo profissional e pela legislação aplicável. Caso você tenha
                         recebido este e-mail por engano, por favor, notifique o remetente e exclua
                         esta mensagem imediatamente. O uso não autorizado dessas informações é
-                        proibido e está sujeito às penalidades aplicáveis.
-                      </p>
-                      <p className="m-0">
-                        This message (including attachments, if any) is for the exclusive use of
-                        persons and entities authorized by Roland DG Brazil, protected by
-                        professional secrecy and by law. If you have received this e-mail in error,
-                        please notify the sender and delete this message immediately. Unauthorized
-                        use of such information is prohibited and subject to applicable penalties.
-                      </p>
+                        proibido e está sujeito às penalidades aplicáveis. This message (including
+                        attachments, if any) is for the exclusive use of persons and entities
+                        authorized by Roland DG Brazil, protected by professional secrecy and by
+                        law. If you have received this e-mail in error, please notify the sender and
+                        delete this message immediately. Unauthorized use of such information is
+                        prohibited and subject to applicable penalties.
+                      </div>
                     </div>
 
                     <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-center text-[10px] text-slate-400">

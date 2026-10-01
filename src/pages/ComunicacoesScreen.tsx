@@ -32,6 +32,8 @@ import {
   executeWithRetry,
   DEFAULT_EMAIL_FECHAMENTO,
   ROLAND_LOGO_URL,
+  DIREITOS_RESERVADOS_TEXT,
+  CONFIDENCIALIDADE_BLOCO_UNIFICADO,
 } from '@/lib/emailTemplateHelper'
 import { extractFieldErrors } from '@/lib/pocketbase/errors'
 import type {
@@ -90,7 +92,16 @@ export const ComunicacoesScreen: React.FC = () => {
   const [assunto, setAssunto] = useState('')
   const [corpo, setCorpo] = useState('')
   const [fechamento, setFechamento] = useState(() => {
-    return localStorage.getItem('roland_email_fechamento') || DEFAULT_EMAIL_FECHAMENTO
+    const saved = localStorage.getItem('roland_email_fechamento')
+    if (saved && saved.toLowerCase().includes('olá teste')) {
+      try {
+        localStorage.setItem('roland_email_fechamento', DEFAULT_EMAIL_FECHAMENTO)
+      } catch {
+        /* intentionally ignored */
+      }
+      return DEFAULT_EMAIL_FECHAMENTO
+    }
+    return saved || DEFAULT_EMAIL_FECHAMENTO
   })
   const [selectedRemetente, setSelectedRemetente] = useState('')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
@@ -1384,28 +1395,30 @@ export const ComunicacoesScreen: React.FC = () => {
                         .replace(/{{revenda}}/g, 'MegaPrint Soluções Gráficas')
                     : '(Digite o corpo da mensagem acima para visualizar aqui)'}
                 </div>
-                {/* Fechamento oficial no preview */}
-                <div className="pt-4 border-t border-slate-100 text-xs text-slate-600 whitespace-pre-wrap font-sans">
-                  {fechamento}
+                {/* Fechamento oficial no preview (duas primeiras linhas em negrito) */}
+                <div className="pt-4 border-t border-slate-100 text-xs text-slate-600 font-sans leading-relaxed">
+                  <div className="font-bold text-slate-800">Departamento Comercial</div>
+                  <div className="font-bold text-slate-800 mt-2">
+                    Roland DG Brasil Imp e Exp Ltda
+                  </div>
+                  <div>Rua San Jose, nº 780 - Pq Industrial San Jose</div>
+                  <div>CEP 06715-862 - (11) 3500-2600 Opção 1</div>
+                  {/* Se o fechamento foi customizado e difere do padrão, exibe abaixo */}
+                  {fechamento.trim() !== DEFAULT_EMAIL_FECHAMENTO.trim() && (
+                    <div className="mt-2 pt-2 border-t border-dashed border-slate-200 text-[11px] text-slate-500 whitespace-pre-wrap">
+                      {fechamento}
+                    </div>
+                  )}
                 </div>
 
-                {/* Rodapé Fixo de Confidencialidade (PT / EN) */}
-                <div className="pt-4 border-t border-slate-100 text-[10px] leading-relaxed text-slate-500 text-justify space-y-1.5 font-sans">
-                  <p className="m-0">
-                    Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso de
-                    pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida pelo
-                    sigilo profissional e pela legislação aplicável. Caso você tenha recebido este
-                    e-mail por engano, por favor, notifique o remetente e exclua esta mensagem
-                    imediatamente. O uso não autorizado dessas informações é proibido e está sujeito
-                    às penalidades aplicáveis.
-                  </p>
-                  <p className="m-0">
-                    This message (including attachments, if any) is for the exclusive use of persons
-                    and entities authorized by Roland DG Brazil, protected by professional secrecy
-                    and by law. If you have received this e-mail in error, please notify the sender
-                    and delete this message immediately. Unauthorized use of such information is
-                    prohibited and subject to applicable penalties.
-                  </p>
+                {/* Linha Todos os direitos reservados + Aviso de Confidencialidade em Bloco Único (fonte menor 9.5-10px cinza) */}
+                <div className="pt-4 border-t border-slate-100 font-sans">
+                  <div className="text-[11px] font-semibold text-slate-500 mb-1.5">
+                    {DIREITOS_RESERVADOS_TEXT}
+                  </div>
+                  <div className="text-[9.5px] leading-relaxed text-slate-500 text-justify">
+                    {CONFIDENCIALIDADE_BLOCO_UNIFICADO}
+                  </div>
                 </div>
               </div>
               {/* Rodapé Oficial no Preview */}
@@ -1771,28 +1784,29 @@ export const ComunicacoesScreen: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Bloco de fechamento Roland DG */}
-                    <div className="pt-4 border-t border-slate-100 text-xs text-slate-600 whitespace-pre-wrap font-sans">
-                      {fechamento}
+                    {/* Bloco de fechamento Roland DG (duas primeiras linhas em negrito) */}
+                    <div className="pt-4 border-t border-slate-100 text-xs text-slate-600 font-sans leading-relaxed">
+                      <div className="font-bold text-slate-800">Departamento Comercial</div>
+                      <div className="font-bold text-slate-800 mt-2">
+                        Roland DG Brasil Imp e Exp Ltda
+                      </div>
+                      <div>Rua San Jose, nº 780 - Pq Industrial San Jose</div>
+                      <div>CEP 06715-862 - (11) 3500-2600 Opção 1</div>
+                      {fechamento.trim() !== DEFAULT_EMAIL_FECHAMENTO.trim() && (
+                        <div className="mt-2 pt-2 border-t border-dashed border-slate-200 text-[11px] text-slate-500 whitespace-pre-wrap">
+                          {fechamento}
+                        </div>
+                      )}
                     </div>
 
-                    {/* Rodapé Fixo de Confidencialidade (PT / EN) */}
-                    <div className="pt-4 border-t border-slate-100 text-[10px] leading-relaxed text-slate-500 text-justify space-y-1.5 font-sans">
-                      <p className="m-0">
-                        Esta mensagem (incluindo eventuais anexos) destina-se exclusivamente ao uso
-                        de pessoas e entidades autorizadas pela Roland DG Brasil, estando protegida
-                        pelo sigilo profissional e pela legislação aplicável. Caso você tenha
-                        recebido este e-mail por engano, por favor, notifique o remetente e exclua
-                        esta mensagem imediatamente. O uso não autorizado dessas informações é
-                        proibido e está sujeito às penalidades aplicáveis.
-                      </p>
-                      <p className="m-0">
-                        This message (including attachments, if any) is for the exclusive use of
-                        persons and entities authorized by Roland DG Brazil, protected by
-                        professional secrecy and by law. If you have received this e-mail in error,
-                        please notify the sender and delete this message immediately. Unauthorized
-                        use of such information is prohibited and subject to applicable penalties.
-                      </p>
+                    {/* Linha Todos os direitos reservados + Aviso de Confidencialidade em Bloco Único (fonte menor 9.5-10px cinza) */}
+                    <div className="pt-4 border-t border-slate-100 font-sans">
+                      <div className="text-[11px] font-semibold text-slate-500 mb-1.5">
+                        {DIREITOS_RESERVADOS_TEXT}
+                      </div>
+                      <div className="text-[9.5px] leading-relaxed text-slate-500 text-justify">
+                        {CONFIDENCIALIDADE_BLOCO_UNIFICADO}
+                      </div>
                     </div>
                   </div>
                   {/* Rodapé institucional */}

@@ -16,12 +16,18 @@ export const ROLAND_LOGO_URL = `${POCKETBASE_BASE_URL}/backend/v1/roland-logo.pn
 
 /**
  * Texto padrão do Fechamento / Assinatura do E-mail (exato solicitado pelo usuário)
+ * Editável no editor de comunicações.
  */
 export const DEFAULT_EMAIL_FECHAMENTO = `Departamento Comercial
 
 Roland DG Brasil Imp e Exp Ltda
 Rua San Jose, nº 780 - Pq Industrial San Jose
 CEP 06715-862 - (11) 3500-2600 Opção 1`
+
+/**
+ * Linha de direitos reservados antes da confidencialidade
+ */
+export const DIREITOS_RESERVADOS_TEXT = 'Todos os direitos reservados'
 
 /**
  * Texto fixo de confidencialidade (PT e EN) exigido no rodapé de toda comunicação enviada
@@ -33,9 +39,39 @@ export const CONFIDENCIALIDADE_EN =
   'This message (including attachments, if any) is for the exclusive use of persons and entities authorized by Roland DG Brazil, protected by professional secrecy and by law. If you have received this e-mail in error, please notify the sender and delete this message immediately. Unauthorized use of such information is prohibited and subject to applicable penalties.'
 
 /**
+ * Bloco único de confidencialidade unindo PT e EN
+ */
+export const CONFIDENCIALIDADE_BLOCO_UNIFICADO = `${CONFIDENCIALIDADE_PT} ${CONFIDENCIALIDADE_EN}`
+
+/**
+ * Formata o fechamento em HTML com as duas primeiras linhas em NEGRITO se corresponderem ao padrão oficial
+ */
+export function formatFechamentoHtml(fechamentoTexto: string = DEFAULT_EMAIL_FECHAMENTO): string {
+  const clean = (fechamentoTexto || DEFAULT_EMAIL_FECHAMENTO).trim()
+  const lines = clean.split('\n')
+
+  // Se contém "Departamento Comercial" e "Roland DG Brasil", assegura que fiquem em negrito
+  return lines
+    .map((line) => {
+      const trimmed = line.trim()
+      if (!trimmed) return ''
+      if (
+        trimmed.toLowerCase() === 'departamento comercial' ||
+        trimmed.toLowerCase() === 'roland dg brasil imp e exp ltda'
+      ) {
+        return `<strong>${trimmed}</strong>`
+      }
+      return trimmed
+    })
+    .join('<br/>')
+    .replace(/(<br\/>){3,}/g, '<br/><br/>')
+}
+
+/**
  * Constrói o HTML completo compatível com clientes de e-mail (Outlook, Gmail, Apple Mail, Webmail)
  * contendo cabeçalho com logo Roland DG Brasil, corpo da mensagem, fechamento/assinatura oficial
- * e o rodapé fixo de confidencialidade obrigatório (9-10px, cinza discreto).
+ * com as duas primeiras linhas em negrito, a linha "Todos os direitos reservados" e
+ * o aviso de confidencialidade em fonte menor (~9.5px, cinza discreto) em um único bloco de texto.
  */
 export function buildRolandEmailHtml(
   corpoTextoOuHtml: string,
@@ -45,7 +81,7 @@ export function buildRolandEmailHtml(
   const hasBlockTags = /<(p|div|table|h[1-6]|ul|ol|li)[^>]*>/i.test(corpoTextoOuHtml)
   const safeCorpo = hasBlockTags ? corpoTextoOuHtml : corpoTextoOuHtml.replace(/\n/g, '<br/>')
 
-  const safeFechamento = (fechamentoTexto || DEFAULT_EMAIL_FECHAMENTO).replace(/\n/g, '<br/>')
+  const safeFechamento = formatFechamentoHtml(fechamentoTexto)
 
   return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" lang="pt-BR">
@@ -86,7 +122,7 @@ export function buildRolandEmailHtml(
             </td>
           </tr>
 
-          <!-- Fechamento / Assinatura Oficial Roland DG -->
+          <!-- Fechamento / Assinatura Oficial Roland DG (duas primeiras linhas em negrito) -->
           <tr>
             <td style="padding: 0 32px 24px 32px;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-top: 1px solid #e2e8f0; padding-top: 20px;">
@@ -99,18 +135,18 @@ export function buildRolandEmailHtml(
             </td>
           </tr>
 
-          <!-- Rodapé Fixo de Confidencialidade (PT / EN) -->
+          <!-- Linha Todos os direitos reservados + Aviso de Confidencialidade em Bloco Único (fonte menor 9.5px cinza) -->
           <tr>
             <td style="padding: 0 32px 24px 32px;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-top: 1px solid #e2e8f0; padding-top: 16px;">
                 <tr>
+                  <td style="font-size: 11px; font-weight: 600; color: #64748b; padding-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                    ${DIREITOS_RESERVADOS_TEXT}
+                  </td>
+                </tr>
+                <tr>
                   <td style="font-size: 9.5px; line-height: 1.5; color: #6b7280; text-align: justify; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                    <p style="margin: 0 0 8px 0;">
-                      ${CONFIDENCIALIDADE_PT}
-                    </p>
-                    <p style="margin: 0;">
-                      ${CONFIDENCIALIDADE_EN}
-                    </p>
+                    ${CONFIDENCIALIDADE_BLOCO_UNIFICADO}
                   </td>
                 </tr>
               </table>
