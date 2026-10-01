@@ -213,11 +213,42 @@ export const comunicacoesService = {
     return pb.collection('campanhas').update<Campanha>(id, data)
   },
 
-  async listCampanhas(): Promise<Campanha[]> {
+  async listCampanhas(filter = ''): Promise<Campanha[]> {
     return pb.collection('campanhas').getFullList<Campanha>({
+      filter,
       sort: '-created',
       expand: 'usuario',
     })
+  },
+
+  async findRecentDuplicateCampanha(assunto: string, corpo: string): Promise<Campanha | null> {
+    try {
+      // 24 horas atrás em ISO string
+      const vinteQuatroHorasAtras = new Date(Date.now() - 24 * 60 * 60 * 1000)
+        .toISOString()
+        .replace('T', ' ')
+      // Buscar campanhas das últimas 24h com status Concluida ou Enviando
+      const filter = `created >= "${vinteQuatroHorasAtras}" && (status = "Concluida" || status = "Enviando")`
+      const candidatas = await pb.collection('campanhas').getFullList<Campanha>({
+        filter,
+        sort: '-created',
+        expand: 'usuario',
+      })
+
+      const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+      const normAssunto = norm(assunto)
+      const normCorpo = norm(corpo)
+
+      for (const camp of candidatas) {
+        if (norm(camp.assunto || '') === normAssunto && norm(camp.corpo || '') === normCorpo) {
+          return camp
+        }
+      }
+      return null
+    } catch (err) {
+      console.warn('Erro ao verificar campanha duplicada recente:', err)
+      return null
+    }
   },
 
   async createEnvio(data: Partial<Envio>): Promise<Envio> {

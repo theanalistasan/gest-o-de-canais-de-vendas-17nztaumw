@@ -140,6 +140,9 @@ export const ComunicacoesScreen: React.FC = () => {
   // PASSO 3: CONFIRMAÇÃO E ENVIO
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false)
+  const [duplicateCampanhaWarning, setDuplicateCampanhaWarning] = useState<Campanha | null>(null)
+  const isEnfileirandoRef = useRef(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -466,13 +469,77 @@ export const ComunicacoesScreen: React.FC = () => {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
     }
+    isEnfileirandoRef.current = false
     setIsSubmitting(false)
     setIsConfirmModalOpen(false)
     setRetryStatusMessage(null)
   }
 
+  // Abertura do fluxo de confirmação e disparo com verificação prévia de duplicados
+  const handleOpenConfirmModal = async () => {
+    if (!user || !canWrite) {
+      toast({
+        title: 'Acesso negado',
+        description:
+          'Usuários com perfil Consulta não possuem permissão para disparar comunicações.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (destinatariosFinais.length === 0) {
+      toast({
+        title: 'Nenhum destinatário',
+        description: 'Selecione ao menos um destinatário válido antes de disparar.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const assuntoValido = assunto.trim()
+    const corpoValido = corpo.trim()
+
+    if (!assuntoValido || !corpoValido) {
+      toast({
+        title: 'Campos incompletos',
+        description: 'Preencha o assunto e o corpo da mensagem antes de continuar.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Trava de disparo duplicado:
+    // Decisão: Modo Teste é isento da trava (disparo de teste para si mesmo pode repetir à vontade).
+    // Modo Produção: verificar se já existe campanha concluída ou em andamento com o mesmo assunto e corpo nas últimas 24h.
+    if (tipoEnvio !== 'Teste') {
+      setIsCheckingDuplicate(true)
+      try {
+        const duplicada = await comunicacoesService.findRecentDuplicateCampanha(
+          assuntoValido,
+          corpoValido,
+        )
+        if (duplicada) {
+          setDuplicateCampanhaWarning(duplicada)
+          return
+        }
+      } catch (err) {
+        console.warn('Erro ao verificar duplicados:', err)
+      } finally {
+        setIsCheckingDuplicate(false)
+      }
+    }
+
+    setDuplicateCampanhaWarning(null)
+    setIsConfirmModalOpen(true)
+  }
+
   // Confirmar e Iniciar Envio
   const handleConfirmAndSend = async () => {
+    // Guard estrito contra duplo clique ou requisições concorrentes
+    if (isEnfileirandoRef.current || isSubmitting) {
+      return
+    }
+
     if (!user || !canWrite) {
       toast({
         title: 'Acesso negado',
@@ -528,6 +595,7 @@ export const ComunicacoesScreen: React.FC = () => {
     abortControllerRef.current = abortController
     const signal = abortController.signal
 
+    isEnfileirandoRef.current = true
     setIsSubmitting(true)
     setEnfileiramentoProgresso({ total: destinatariosFinais.length, atual: 0 })
     setRetryStatusMessage(null)
@@ -728,6 +796,7 @@ export const ComunicacoesScreen: React.FC = () => {
       })
     } finally {
       abortControllerRef.current = null
+      isEnfileirandoRef.current = false
       setIsSubmitting(false)
       setEnfileiramentoProgresso(null)
       setRetryStatusMessage(null)
@@ -1914,12 +1983,20 @@ export const ComunicacoesScreen: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setIsConfirmModalOpen(true)}
-                      disabled={isSubmitting}
-                      className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+                      onClick={handleOpenConfirmModal}
+                      disabled={isSubmitting || isCheckingDuplicate}
+                      className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white shadow-md shadow-blue-500/20 transition-all flex items-center gap-2 disabled:opacity-50"
                     >
-                      <Send className="h-4 w-4" />
-                      <span>Confirmar e Iniciar Disparo</span>
+                      {isCheckingDuplicate ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                      <span>
+                        {isCheckingDuplicate
+                          ? 'Verificando duplicidades...'
+                          : 'Confirmar e Iniciar Disparo'}
+                      </span>
                     </button>
                   </>
                 ) : (
@@ -1986,6 +2063,86 @@ export const ComunicacoesScreen: React.FC = () => {
                 className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-semibold"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE AVISO DE DISPARO DUPLICADO NAS ÚLTIMAS 24 HORAS */}
+      {duplicateCampanhaWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-amber-300 w-full max-w-lg p-6 space-y-4 scale-in">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+              <AlertCircle className="h-6 w-6" />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h3 className="text-base font-bold text-slate-900">
+                Atenção: Comunicado idêntico já disparado recentemente!
+              </h3>
+              <p className="text-xs text-slate-600">
+                Este comunicado já foi disparado hoje às{' '}
+                <strong className="text-slate-900 font-mono">
+                  {new Date(duplicateCampanhaWarning.created).toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </strong>{' '}
+                (em{' '}
+                {new Date(duplicateCampanhaWarning.created).toLocaleDateString('pt-BR', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                })}
+                ) para{' '}
+                <strong className="text-slate-900">
+                  {duplicateCampanhaWarning.quantidade_destinatarios ||
+                    duplicateCampanhaWarning.destinatarios_total ||
+                    '—'}{' '}
+                  destinatários
+                </strong>
+                .
+              </p>
+            </div>
+
+            <div className="bg-amber-50 rounded-xl p-3 border border-amber-200 text-xs space-y-1.5 text-left">
+              <div className="text-[11px] text-amber-900">
+                <span className="font-semibold">Campanha anterior:</span>{' '}
+                {duplicateCampanhaWarning.nome || duplicateCampanhaWarning.assunto}
+              </div>
+              <div className="text-[11px] text-amber-900">
+                <span className="font-semibold">Status:</span>{' '}
+                <span className="font-medium">{duplicateCampanhaWarning.status}</span>
+              </div>
+              <div className="text-[11px] text-amber-900">
+                <span className="font-semibold">Assunto:</span> {duplicateCampanhaWarning.assunto}
+              </div>
+              <div className="pt-1 text-[11px] text-amber-800 font-medium">
+                Deseja disparar novamente mesmo assim?
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateCampanhaWarning(null)
+                  setStep(2)
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+              >
+                Revisar mensagem
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateCampanhaWarning(null)
+                  setIsConfirmModalOpen(true)
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm shadow-amber-500/20 transition-all"
+              >
+                Disparar mesmo assim
               </button>
             </div>
           </div>

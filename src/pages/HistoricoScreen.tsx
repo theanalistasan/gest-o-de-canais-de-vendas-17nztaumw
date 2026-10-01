@@ -17,9 +17,17 @@ import {
   AlertTriangle,
   Paperclip,
   FileText,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  Building2,
+  Radio,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
-import { comunicacoesService } from '@/services/apiService'
+import { comunicacoesService, auxiliaresService, revendasService } from '@/services/apiService'
 import { exportToCSV } from '@/lib/exportCsv'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -32,7 +40,29 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import type { Envio, Campanha } from '@/types'
+import type { Envio, Campanha, Revenda, CanalFaturamento } from '@/types'
+
+export type HistoricoSortField =
+  | 'data_envio'
+  | 'campanha'
+  | 'contato'
+  | 'revenda'
+  | 'canal'
+  | 'email'
+  | 'status'
+  | 'tentativas'
+
+export type HistoricoGroupBy = 'none' | 'canal' | 'revenda'
+
+export interface EnviosGroup {
+  groupId: string
+  groupTitle: string
+  subTitle?: string
+  badgeText?: string
+  envios: Envio[]
+  isUnassigned?: boolean
+  errosCount: number
+}
 
 export const HistoricoScreen: React.FC = () => {
   const { toast } = useToast()
@@ -42,6 +72,8 @@ export const HistoricoScreen: React.FC = () => {
 
   const [envios, setEnvios] = useState<Envio[]>([])
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
+  const [revendas, setRevendas] = useState<Revenda[]>([])
+  const [canais, setCanais] = useState<CanalFaturamento[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   // Filtros
@@ -54,6 +86,16 @@ export const HistoricoScreen: React.FC = () => {
   // Paginação
   const [currentPage, setCurrentPage] = useState(1)
   const [perPage, setPerPage] = useState(25)
+
+  // Ordenação de colunas
+  const [sortField, setSortField] = useState<HistoricoSortField>('data_envio')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  // Agrupamento colapsável
+  const [groupBy, setGroupBy] = useState<HistoricoGroupBy>('none')
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+  const [groupPage, setGroupPage] = useState(1)
+  const [groupsPerPage, setGroupsPerPage] = useState<number | 'all'>('all')
 
   // Modal Detalhes do Envio / Campanha
   const [selectedEnvio, setSelectedEnvio] = useState<Envio | null>(null)
@@ -73,13 +115,17 @@ export const HistoricoScreen: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [eList, cList] = await Promise.all([
+      const [eList, cList, rList, canList] = await Promise.all([
         comunicacoesService.getAllEnvios(),
         comunicacoesService.listCampanhas(),
+        revendasService.getAll().catch(() => [] as Revenda[]),
+        auxiliaresService.getCanaisFaturamento().catch(() => [] as CanalFaturamento[]),
       ])
 
       setEnvios(eList)
       setCampanhas(cList)
+      setRevendas(rList)
+      setCanais(canList)
     } catch (err) {
       console.error('Erro ao carregar histórico:', err)
     } finally {
@@ -90,6 +136,60 @@ export const HistoricoScreen: React.FC = () => {
   useEffect(() => {
     loadData()
   }, [])
+
+  // Mapas auxiliares para resolução ágil de revenda e canal de faturamento
+  const revendasMap = useMemo(() => {
+    const map = new Map<string, Revenda>()
+    for (const r of revendas) map.set(r.id, r)
+    return map
+  }, [revendas])
+
+  const canaisMap = useMemo(() => {
+    const map = new Map<string, CanalFaturamento>()
+    for (const c of canais) map.set(c.id, c)
+    return map
+  }, [canais])
+
+  // Helper para obter o canal de faturamento da linha do envio
+  // Snapshot textual do envio tem prioridade; em seguida join com revenda vinculada
+  const getCanalDoEnvio = (e: Envio): { id: string; nome: string } => {
+    // 1. Snapshot direto se vier de revenda vinculada ou campo customizado
+    const rev = (e.revenda ? revendasMap.get(e.revenda) : null) || e.expand?.revenda
+    if (rev?.canal_faturamento) {
+      const canalObj = canaisMap.get(rev.canal_faturamento)
+      if (canalObj) {
+        return { id: canalObj.id, nome: canalObj.nome }
+      }
+    }
+    // 2. Campo texto canal na revenda
+    if (rev?.canal) {
+      return { id: rev.canal, nome: rev.canal }
+    }
+    if (rev?.canais) {
+      return { id: rev.canais, nome: rev.canais }
+    }
+    return { id: 'sem_canal', nome: 'Sem canal' }
+  }
+
+  // Helper para obter a revenda do envio
+  const getRevendaDoEnvio = (
+    e: Envio,
+  ): { id: string; nome: string; codigo?: string; isUnassigned: boolean } => {
+    const revId = e.revenda || e.expand?.revenda?.id
+    const revNome = e.nome_revenda || e.expand?.revenda?.nome
+    const revCodigo = e.codigo_revenda || e.expand?.revenda?.codigo
+
+    if (!revId && !revNome) {
+      return { id: 'sem_revenda', nome: 'Sem revenda', isUnassigned: true }
+    }
+
+    return {
+      id: revId || `rev_${revNome}`,
+      nome: revNome || 'Revenda não identificada',
+      codigo: revCodigo || undefined,
+      isUnassigned: false,
+    }
+  }
 
   // Filtragem
   const filteredEnvios = useMemo(() => {
@@ -114,20 +214,198 @@ export const HistoricoScreen: React.FC = () => {
         const matchContato = nomeCont.includes(q)
         const matchEmail = e.email_utilizado?.toLowerCase().includes(q)
         const matchCampanha = e.expand?.campanha?.nome?.toLowerCase().includes(q)
-        if (!matchCodigo && !matchRevenda && !matchContato && !matchEmail && !matchCampanha) {
+        const matchAssunto = e.expand?.campanha?.assunto?.toLowerCase().includes(q)
+        const matchCanal = getCanalDoEnvio(e).nome.toLowerCase().includes(q)
+        if (
+          !matchCodigo &&
+          !matchRevenda &&
+          !matchContato &&
+          !matchEmail &&
+          !matchCampanha &&
+          !matchAssunto &&
+          !matchCanal
+        ) {
           return false
         }
       }
       return true
     })
-  }, [envios, filterCampanha, filterStatus, filterDataInicio, filterDataFim, searchGeral])
+  }, [
+    envios,
+    filterCampanha,
+    filterStatus,
+    filterDataInicio,
+    filterDataFim,
+    searchGeral,
+    revendasMap,
+    canaisMap,
+  ])
 
-  // Paginação
-  const totalPages = Math.ceil(filteredEnvios.length / perPage) || 1
+  // Ordenação de colunas sobre os registros filtrados
+  const sortedEnvios = useMemo(() => {
+    const list = [...filteredEnvios]
+    const dirMult = sortDir === 'asc' ? 1 : -1
+
+    return list.sort((a, b) => {
+      let valA = ''
+      let valB = ''
+
+      switch (sortField) {
+        case 'data_envio': {
+          const dateA = new Date(a.data_envio || a.created).getTime() || 0
+          const dateB = new Date(b.data_envio || b.created).getTime() || 0
+          return (dateA - dateB) * dirMult
+        }
+        case 'campanha':
+          valA = (a.expand?.campanha?.assunto || a.expand?.campanha?.nome || '').toLowerCase()
+          valB = (b.expand?.campanha?.assunto || b.expand?.campanha?.nome || '').toLowerCase()
+          break
+        case 'contato':
+          valA = (a.nome_contato || a.expand?.contato?.nome || '').toLowerCase()
+          valB = (b.nome_contato || b.expand?.contato?.nome || '').toLowerCase()
+          break
+        case 'revenda':
+          valA = (a.nome_revenda || a.expand?.revenda?.nome || '').toLowerCase()
+          valB = (b.nome_revenda || b.expand?.revenda?.nome || '').toLowerCase()
+          break
+        case 'canal':
+          valA = getCanalDoEnvio(a).nome.toLowerCase()
+          valB = getCanalDoEnvio(b).nome.toLowerCase()
+          break
+        case 'email':
+          valA = (a.email_utilizado || '').toLowerCase()
+          valB = (b.email_utilizado || '').toLowerCase()
+          break
+        case 'status':
+          valA = (a.status || '').toLowerCase()
+          valB = (b.status || '').toLowerCase()
+          break
+        case 'tentativas': {
+          // Status Enviado tem sucesso de tentativa única; Erro com mensagem tem tentativa falhada
+          const numA =
+            (a as unknown as { tentativas?: number }).tentativas ||
+            (a.status === 'Erro' ? 1 : a.status === 'Enviado' ? 1 : 0)
+          const numB =
+            (b as unknown as { tentativas?: number }).tentativas ||
+            (b.status === 'Erro' ? 1 : b.status === 'Enviado' ? 1 : 0)
+          return (numA - numB) * dirMult
+        }
+        default:
+          return 0
+      }
+
+      return valA.localeCompare(valB, 'pt-BR') * dirMult
+    })
+  }, [filteredEnvios, sortField, sortDir, revendasMap, canaisMap])
+
+  // Agrupamento colapsável
+  const allGroups = useMemo(() => {
+    if (groupBy === 'none') return []
+
+    const groups: EnviosGroup[] = []
+    const groupMap = new Map<string, EnviosGroup>()
+
+    for (const env of sortedEnvios) {
+      let gId = ''
+      let gTitle = ''
+      let subTitle: string | undefined = undefined
+      let badgeText: string | undefined = undefined
+      let isUnassigned = false
+
+      if (groupBy === 'canal') {
+        const canalInfo = getCanalDoEnvio(env)
+        gId = canalInfo.id
+        gTitle = canalInfo.nome
+        badgeText = 'Canal de Faturamento'
+        if (gId === 'sem_canal') {
+          isUnassigned = true
+        }
+      } else {
+        // 'revenda'
+        const revInfo = getRevendaDoEnvio(env)
+        gId = revInfo.id
+        gTitle = revInfo.nome
+        subTitle = revInfo.codigo ? `Cód: ${revInfo.codigo}` : undefined
+        badgeText = 'Revenda'
+        isUnassigned = revInfo.isUnassigned
+      }
+
+      let grp = groupMap.get(gId)
+      if (!grp) {
+        grp = {
+          groupId: gId,
+          groupTitle: gTitle,
+          subTitle,
+          badgeText,
+          envios: [],
+          isUnassigned,
+          errosCount: 0,
+        }
+        groupMap.set(gId, grp)
+        groups.push(grp)
+      }
+
+      grp.envios.push(env)
+      if (env.status === 'Erro') {
+        grp.errosCount++
+      }
+    }
+
+    return groups
+  }, [sortedEnvios, groupBy, revendasMap, canaisMap])
+
+  // Grupos exibidos na página atual no modo agrupado
+  const displayedGroups = useMemo(() => {
+    if (groupsPerPage === 'all') {
+      return allGroups
+    }
+    const start = (groupPage - 1) * groupsPerPage
+    return allGroups.slice(start, start + groupsPerPage)
+  }, [allGroups, groupPage, groupsPerPage])
+
+  const totalEnviosVisiveisNoAgrupado = useMemo(() => {
+    return displayedGroups.reduce((acc, g) => acc + g.envios.length, 0)
+  }, [displayedGroups])
+
+  const handleToggleCollapse = (groupId: string) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [groupId]: !prev[groupId],
+    }))
+  }
+
+  const handleExpandAll = () => {
+    setCollapsedGroups({})
+  }
+
+  const handleCollapseAll = () => {
+    setGroupsPerPage('all')
+    setGroupPage(1)
+    const newState: Record<string, boolean> = {}
+    for (const g of allGroups) {
+      newState[g.groupId] = true
+    }
+    setCollapsedGroups(newState)
+  }
+
+  const allCollapsed =
+    displayedGroups.length > 0 && displayedGroups.every((g) => !!collapsedGroups[g.groupId])
+
+  // Paginação no modo Lista Plana
+  const totalPages = Math.ceil(sortedEnvios.length / perPage) || 1
   const paginatedEnvios = useMemo(() => {
     const start = (currentPage - 1) * perPage
-    return filteredEnvios.slice(start, start + perPage)
-  }, [filteredEnvios, currentPage, perPage])
+    return sortedEnvios.slice(start, start + perPage)
+  }, [sortedEnvios, currentPage, perPage])
+
+  const handleSort = (field: HistoricoSortField) => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir(field === 'data_envio' ? 'desc' : 'asc')
+    }
+  }
 
   // Executar reenvio individual confirmado
   const handleConfirmReenviar = async () => {
@@ -313,7 +591,7 @@ export const HistoricoScreen: React.FC = () => {
   }
 
   const handleExportCSV = () => {
-    const dataToExport = filteredEnvios.map((e) => ({
+    const dataToExport = sortedEnvios.map((e) => ({
       campanha: e.expand?.campanha?.nome || '',
       assunto: e.expand?.campanha?.assunto || '',
       data_envio: e.data_envio
@@ -325,9 +603,12 @@ export const HistoricoScreen: React.FC = () => {
         '',
       revenda: e.nome_revenda || e.expand?.revenda?.nome || '',
       codigo_revenda: e.codigo_revenda || e.expand?.revenda?.codigo || '',
+      canal: getCanalDoEnvio(e).nome,
       contato: e.nome_contato || e.expand?.contato?.nome || '',
       email: e.email_utilizado || '',
       status: e.status,
+      tentativas:
+        (e as unknown as { tentativas?: number }).tentativas || (e.status === 'Erro' ? 1 : 1),
       sucesso: e.sucesso ? 'Sim' : 'Não',
       erro: e.erro ? 'Sim' : 'Não',
       mensagem_erro: e.mensagem_erro || '',
@@ -340,9 +621,11 @@ export const HistoricoScreen: React.FC = () => {
       { key: 'usuario', label: 'Usuário Responsável' },
       { key: 'revenda', label: 'Revenda' },
       { key: 'codigo_revenda', label: 'Código da Revenda' },
+      { key: 'canal', label: 'Canal' },
       { key: 'contato', label: 'Contato' },
       { key: 'email', label: 'E-mail Utilizado' },
       { key: 'status', label: 'Status' },
+      { key: 'tentativas', label: 'Tentativas' },
       { key: 'sucesso', label: 'Sucesso' },
       { key: 'erro', label: 'Erro' },
       { key: 'mensagem_erro', label: 'Mensagem de Erro' },
@@ -559,183 +842,702 @@ export const HistoricoScreen: React.FC = () => {
         </div>
       </div>
 
+      {/* BARRA DE AGRUPAMENTO COLAPSÁVEL */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-xs">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Layers className="h-4 w-4 text-blue-600 shrink-0" />
+            <span className="font-semibold text-slate-700 whitespace-nowrap">Agrupar por:</span>
+            <select
+              value={groupBy}
+              onChange={(e) => {
+                setGroupBy(e.target.value as HistoricoGroupBy)
+                setGroupPage(1)
+                setCollapsedGroups({})
+              }}
+              className="py-1 px-2.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="none">Sem agrupamento (Lista Plana)</option>
+              <option value="canal">Agrupar por Canal</option>
+              <option value="revenda">Agrupar por Revenda</option>
+            </select>
+          </div>
+
+          <span className="text-slate-300 hidden sm:inline">|</span>
+
+          <span className="text-slate-500">
+            {groupBy !== 'none' ? (
+              <>
+                {groupsPerPage === 'all' ? (
+                  <>
+                    Exibindo todos os <strong className="text-slate-800">{allGroups.length}</strong>{' '}
+                    {groupBy === 'canal' ? 'canais de faturamento' : 'grupos de revendas'} nesta
+                    página (<strong className="text-slate-800">{sortedEnvios.length}</strong>{' '}
+                    envios)
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-slate-800">{displayedGroups.length}</strong> de{' '}
+                    <strong className="text-slate-800">{allGroups.length}</strong> grupos nesta
+                    página ({totalEnviosVisiveisNoAgrupado} envios visíveis)
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                Modo lista plana: <strong className="text-slate-800">{sortedEnvios.length}</strong>{' '}
+                envios filtrados
+              </>
+            )}
+          </span>
+        </div>
+
+        {groupBy !== 'none' && allGroups.length > 0 && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={allCollapsed ? handleExpandAll : handleCollapseAll}
+              className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition-colors shadow-xs"
+            >
+              {allCollapsed ? (
+                <>
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Expandir todas</span>
+                </>
+              ) : (
+                <>
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Colapsar todas (ver tudo)</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleExpandAll}
+              disabled={Object.keys(collapsedGroups).length === 0}
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition-colors shadow-xs disabled:opacity-40"
+            >
+              <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+              <span>Expandir todas</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleCollapseAll}
+              disabled={allCollapsed}
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition-colors shadow-xs disabled:opacity-40"
+              title="Colapsa todos os grupos e exibe todos em uma única página"
+            >
+              <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+              <span>Colapsar todas</span>
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* TABELA DE ENVIOS */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
               <tr>
-                <th className="py-3 px-4">Campanha / Assunto</th>
-                <th className="py-3 px-4">Data/Hora</th>
-                <th className="py-3 px-4">Cód. Revenda</th>
-                <th className="py-3 px-4">Revenda</th>
-                <th className="py-3 px-4">Contato</th>
-                <th className="py-3 px-4">E-mail Utilizado</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Diagnóstico</th>
-                <th className="py-3 px-4 text-right">Ações</th>
+                {/* 1. Data/Hora */}
+                <th
+                  onClick={() => handleSort('data_envio')}
+                  className="py-3 px-3 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
+                  title="Ordenar por Data/Hora"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Data/Hora</span>
+                    {sortField === 'data_envio' ? (
+                      sortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-blue-600" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                    )}
+                  </div>
+                </th>
+
+                {/* 2. Campanha (assunto) */}
+                <th
+                  onClick={() => handleSort('campanha')}
+                  className="py-3 px-3 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
+                  title="Ordenar por Campanha / Assunto"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Campanha / Assunto</span>
+                    {sortField === 'campanha' ? (
+                      sortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-blue-600" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                    )}
+                  </div>
+                </th>
+
+                {/* 3. Destinatário (contato) */}
+                <th
+                  onClick={() => handleSort('contato')}
+                  className="py-3 px-3 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
+                  title="Ordenar por Contato"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Destinatário</span>
+                    {sortField === 'contato' ? (
+                      sortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-blue-600" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                    )}
+                  </div>
+                </th>
+
+                {/* 4. Revenda */}
+                <th
+                  onClick={() => handleSort('revenda')}
+                  className="py-3 px-3 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
+                  title="Ordenar por Revenda"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Revenda</span>
+                    {sortField === 'revenda' ? (
+                      sortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-blue-600" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                    )}
+                  </div>
+                </th>
+
+                {/* 5. Canal de Faturamento */}
+                <th
+                  onClick={() => handleSort('canal')}
+                  className="py-3 px-3 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
+                  title="Ordenar por Canal de Faturamento"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Canal</span>
+                    {sortField === 'canal' ? (
+                      sortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-blue-600" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                    )}
+                  </div>
+                </th>
+
+                {/* 6. E-mail */}
+                <th
+                  onClick={() => handleSort('email')}
+                  className="py-3 px-3 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
+                  title="Ordenar por E-mail"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>E-mail Utilizado</span>
+                    {sortField === 'email' ? (
+                      sortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-blue-600" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                    )}
+                  </div>
+                </th>
+
+                {/* 7. Status */}
+                <th
+                  onClick={() => handleSort('status')}
+                  className="py-3 px-3 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap"
+                  title="Ordenar por Status"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Status</span>
+                    {sortField === 'status' ? (
+                      sortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-blue-600" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                    )}
+                  </div>
+                </th>
+
+                {/* 8. Tentativas */}
+                <th
+                  onClick={() => handleSort('tentativas')}
+                  className="py-3 px-3 cursor-pointer hover:text-slate-800 select-none whitespace-nowrap text-center"
+                  title="Ordenar por Tentativas"
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    <span>Tentativas</span>
+                    {sortField === 'tentativas' ? (
+                      sortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-blue-600" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                    )}
+                  </div>
+                </th>
+
+                {/* Diagnóstico */}
+                <th className="py-3 px-3">Diagnóstico</th>
+
+                {/* Ações */}
+                <th className="py-3 px-3 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto text-blue-600 mb-2" />
                     <span>Carregando histórico de envios...</span>
                   </td>
                 </tr>
-              ) : paginatedEnvios.length === 0 ? (
+              ) : sortedEnvios.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <History className="h-8 w-8 mx-auto text-slate-300 mb-2" />
                     <span>Nenhum envio registrado no histórico.</span>
                   </td>
                 </tr>
-              ) : (
-                paginatedEnvios.map((env) => (
-                  <tr key={env.id} className="hover:bg-slate-50/80 transition-colors">
-                    {/* Campanha */}
-                    <td className="py-3 px-4 max-w-[200px]">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-900 truncate">
-                          {env.expand?.campanha?.nome || 'Campanha'}
+              ) : groupBy === 'none' ? (
+                // MODO LISTA PLANA
+                paginatedEnvios.map((env) => {
+                  const canal = getCanalDoEnvio(env)
+                  const tentativas =
+                    (env as unknown as { tentativas?: number }).tentativas ||
+                    (env.status === 'Erro' ? 1 : 1)
+                  return (
+                    <tr key={env.id} className="hover:bg-slate-50/80 transition-colors">
+                      {/* 1. Data */}
+                      <td className="py-3 px-3 whitespace-nowrap text-slate-600 font-medium">
+                        {env.data_envio
+                          ? new Date(env.data_envio).toLocaleString('pt-BR')
+                          : new Date(env.created).toLocaleString('pt-BR')}
+                      </td>
+
+                      {/* 2. Campanha */}
+                      <td className="py-3 px-3 max-w-[200px]">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-900 truncate">
+                            {env.expand?.campanha?.nome || 'Campanha'}
+                          </span>
+                          {env.expand?.campanha?.anexos &&
+                            env.expand.campanha.anexos.length > 0 && (
+                              <span
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold flex-shrink-0"
+                                title={`${env.expand.campanha.anexos.length} anexo(s) nesta campanha`}
+                              >
+                                <Paperclip className="h-2.5 w-2.5" />
+                                <span>{env.expand.campanha.anexos.length}</span>
+                              </span>
+                            )}
+                        </div>
+                        <span className="text-[11px] text-slate-500 truncate block">
+                          {env.expand?.campanha?.assunto || '—'}
                         </span>
-                        {env.expand?.campanha?.anexos && env.expand.campanha.anexos.length > 0 && (
-                          <span
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold flex-shrink-0"
-                            title={`${env.expand.campanha.anexos.length} anexo(s) nesta campanha`}
-                          >
-                            <Paperclip className="h-2.5 w-2.5" />
-                            <span>{env.expand.campanha.anexos.length}</span>
+                      </td>
+
+                      {/* 3. Contato (destinatário) */}
+                      <td className="py-3 px-3 text-slate-800 font-semibold whitespace-nowrap">
+                        {env.nome_contato || env.expand?.contato?.nome || '—'}
+                      </td>
+
+                      {/* 4. Revenda */}
+                      <td className="py-3 px-3 text-slate-700">
+                        <div className="font-medium text-slate-900">
+                          {env.nome_revenda || env.expand?.revenda?.nome || '—'}
+                        </div>
+                        {(env.codigo_revenda || env.expand?.revenda?.codigo) && (
+                          <span className="font-mono text-[10px] text-slate-500">
+                            Cód: {env.codigo_revenda || env.expand?.revenda?.codigo}
                           </span>
                         )}
-                      </div>
-                      <span className="text-[11px] text-slate-500 truncate block">
-                        {env.expand?.campanha?.assunto || '—'}
-                      </span>
-                    </td>
+                      </td>
 
-                    {/* Data */}
-                    <td className="py-3 px-4 whitespace-nowrap text-slate-600">
-                      {env.data_envio
-                        ? new Date(env.data_envio).toLocaleString('pt-BR')
-                        : new Date(env.created).toLocaleString('pt-BR')}
-                    </td>
-
-                    {/* Código Revenda */}
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      {env.codigo_revenda || env.expand?.revenda?.codigo ? (
-                        <span className="font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                          {env.codigo_revenda || env.expand?.revenda?.codigo}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 italic">—</span>
-                      )}
-                    </td>
-
-                    {/* Revenda */}
-                    <td className="py-3 px-4 text-slate-700 font-medium">
-                      {env.nome_revenda || env.expand?.revenda?.nome || '—'}
-                    </td>
-
-                    {/* Contato */}
-                    <td className="py-3 px-4 text-slate-800 font-semibold">
-                      {env.nome_contato || env.expand?.contato?.nome || '—'}
-                    </td>
-
-                    {/* E-mail */}
-                    <td className="py-3 px-4 font-mono text-blue-700">
-                      {env.email_utilizado || '—'}
-                    </td>
-
-                    {/* Status */}
-                    <td className="py-3 px-4 whitespace-nowrap">{getStatusBadge(env.status)}</td>
-
-                    {/* Diagnóstico */}
-                    <td className="py-3 px-4 max-w-[200px]">
-                      {env.erro && env.mensagem_erro ? (
+                      {/* 5. Canal */}
+                      <td className="py-3 px-3 whitespace-nowrap">
                         <span
-                          className="text-[11px] text-red-600 font-medium truncate block"
-                          title={env.mensagem_erro}
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                            canal.id === 'sem_canal'
+                              ? 'bg-slate-50 text-slate-500 border-slate-200'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          }`}
                         >
-                          {env.mensagem_erro}
+                          {canal.nome}
                         </span>
-                      ) : env.mensagem_erro && env.mensagem_erro.includes('Simulado') ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200"
-                          title={env.mensagem_erro}
-                        >
-                          Simulado — nenhum e-mail enviado de fato
-                        </span>
-                      ) : env.sucesso ? (
-                        <span className="text-[11px] text-emerald-600 font-medium">
-                          Registro auditado com sucesso
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">Aguardando processamento</span>
-                      )}
-                    </td>
+                      </td>
 
-                    {/* Ações */}
-                    <td className="py-3 px-4 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Ação de reenvio: disponível tanto para status 'Erro' quanto 'Enviado' */}
-                        {canWrite && (env.status === 'Erro' || env.status === 'Enviado') && (
-                          <button
-                            type="button"
-                            onClick={() => setEnvioParaReenviar(env)}
-                            disabled={
-                              reenviandoId === env.id || isReenviandoLote || excluindoId === env.id
-                            }
-                            title={
-                              env.status === 'Enviado'
-                                ? 'Reenviar mensagem (já entregue)'
-                                : 'Reenviar mensagem para este destinatário'
-                            }
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-40 ${
-                              env.status === 'Enviado'
-                                ? 'bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 hover:border-sky-300'
-                                : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300'
-                            }`}
+                      {/* 6. E-mail */}
+                      <td className="py-3 px-3 font-mono text-blue-700 break-all">
+                        {env.email_utilizado || '—'}
+                      </td>
+
+                      {/* 7. Status */}
+                      <td className="py-3 px-3 whitespace-nowrap">{getStatusBadge(env.status)}</td>
+
+                      {/* 8. Tentativas */}
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        <span className="font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[11px]">
+                          {tentativas}
+                        </span>
+                      </td>
+
+                      {/* 9. Diagnóstico */}
+                      <td className="py-3 px-3 max-w-[200px]">
+                        {env.erro && env.mensagem_erro ? (
+                          <span
+                            className="text-[11px] text-red-600 font-medium truncate block"
+                            title={env.mensagem_erro}
                           >
-                            {reenviandoId === env.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin text-current" />
-                            ) : (
-                              <RotateCw className="h-3 w-3 text-current" />
-                            )}
-                            <span>Reenviar</span>
-                          </button>
-                        )}
-
-                        {/* Ação de lixeira: exclusiva para perfil Administrador e apenas para status 'Erro' */}
-                        {isAdmin && env.status === 'Erro' && (
-                          <button
-                            type="button"
-                            onClick={() => setEnvioParaExcluir(env)}
-                            disabled={excluindoId === env.id || reenviandoId === env.id}
-                            title="Excluir registro com falha do histórico"
-                            className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md border border-slate-200 hover:border-red-200 transition-colors disabled:opacity-40"
+                            {env.mensagem_erro}
+                          </span>
+                        ) : env.mensagem_erro && env.mensagem_erro.includes('Simulado') ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200"
+                            title={env.mensagem_erro}
                           >
-                            {excluindoId === env.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin text-red-600" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
-                            )}
-                          </button>
+                            Simulado — nenhum e-mail enviado de fato
+                          </span>
+                        ) : env.sucesso ? (
+                          <span className="text-[11px] text-emerald-600 font-medium">
+                            Auditado com sucesso
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">Aguardando</span>
                         )}
+                      </td>
 
-                        <button
-                          onClick={() => setSelectedEnvio(env)}
-                          title="Ver detalhes da comunicação"
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-md border border-slate-200 transition-colors"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          <span>Detalhes</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      {/* 10. Ações */}
+                      <td className="py-3 px-3 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {canWrite && (env.status === 'Erro' || env.status === 'Enviado') && (
+                            <button
+                              type="button"
+                              onClick={() => setEnvioParaReenviar(env)}
+                              disabled={
+                                reenviandoId === env.id ||
+                                isReenviandoLote ||
+                                excluindoId === env.id
+                              }
+                              title={
+                                env.status === 'Enviado'
+                                  ? 'Reenviar mensagem (já entregue)'
+                                  : 'Reenviar mensagem para este destinatário'
+                              }
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-40 ${
+                                env.status === 'Enviado'
+                                  ? 'bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 hover:border-sky-300'
+                                  : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300'
+                              }`}
+                            >
+                              {reenviandoId === env.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin text-current" />
+                              ) : (
+                                <RotateCw className="h-3 w-3 text-current" />
+                              )}
+                              <span>Reenviar</span>
+                            </button>
+                          )}
+
+                          {isAdmin && env.status === 'Erro' && (
+                            <button
+                              type="button"
+                              onClick={() => setEnvioParaExcluir(env)}
+                              disabled={excluindoId === env.id || reenviandoId === env.id}
+                              title="Excluir registro com falha do histórico"
+                              className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md border border-slate-200 hover:border-red-200 transition-colors disabled:opacity-40"
+                            >
+                              {excluindoId === env.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-red-600" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => setSelectedEnvio(env)}
+                            title="Ver detalhes da comunicação"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-md border border-slate-200 transition-colors"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Detalhes</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              ) : (
+                // MODO AGRUPADO COLAPSÁVEL (POR CANAL OU POR REVENDA)
+                displayedGroups.map((group) => {
+                  const isCollapsed = !!collapsedGroups[group.groupId]
+                  return (
+                    <React.Fragment key={`group-${group.groupId}`}>
+                      {/* CABEÇALHO DO GRUPO */}
+                      <tr className="bg-slate-100/90 border-y border-slate-200 hover:bg-slate-200/70 transition-colors">
+                        <td colSpan={10} className="py-2.5 px-3">
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleCollapse(group.groupId)}
+                              className="flex items-center gap-2.5 text-left font-bold text-slate-900 hover:text-blue-600 select-none group/btn"
+                            >
+                              <span className="p-1 rounded bg-white border border-slate-200 text-slate-600 group-hover/btn:border-blue-300 group-hover/btn:text-blue-600 transition-colors shadow-2xs">
+                                {isCollapsed ? (
+                                  <ChevronRight className="h-3.5 w-3.5" />
+                                ) : (
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                )}
+                              </span>
+
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {groupBy === 'canal' ? (
+                                  <Radio className="h-4 w-4 text-emerald-600" />
+                                ) : (
+                                  <Building2 className="h-4 w-4 text-blue-600" />
+                                )}
+                                <span className="text-xs tracking-tight">{group.groupTitle}</span>
+
+                                {group.subTitle && (
+                                  <span className="font-mono text-[10px] font-bold bg-white text-slate-700 px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs">
+                                    {group.subTitle}
+                                  </span>
+                                )}
+
+                                {group.badgeText && (
+                                  <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                                    {group.badgeText}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+
+                            <div className="flex items-center gap-2.5">
+                              {group.errosCount > 0 && (
+                                <span className="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200 shadow-2xs flex items-center gap-1">
+                                  <XCircle className="h-3 w-3 text-rose-600" />
+                                  <span>
+                                    {group.errosCount} {group.errosCount === 1 ? 'erro' : 'erros'}
+                                  </span>
+                                </span>
+                              )}
+
+                              <span className="text-[11px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-full border border-slate-200 shadow-2xs">
+                                {group.envios.length}{' '}
+                                {group.envios.length === 1 ? 'envio' : 'envios'}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* LINHAS DE ENVIOS DO GRUPO */}
+                      {!isCollapsed &&
+                        group.envios.map((env) => {
+                          const canal = getCanalDoEnvio(env)
+                          const tentativas =
+                            (env as unknown as { tentativas?: number }).tentativas ||
+                            (env.status === 'Erro' ? 1 : 1)
+                          return (
+                            <tr
+                              key={env.id}
+                              className="hover:bg-slate-50/80 transition-colors bg-white"
+                            >
+                              {/* 1. Data */}
+                              <td className="py-2.5 px-3 whitespace-nowrap text-slate-600 font-medium">
+                                {env.data_envio
+                                  ? new Date(env.data_envio).toLocaleString('pt-BR')
+                                  : new Date(env.created).toLocaleString('pt-BR')}
+                              </td>
+
+                              {/* 2. Campanha */}
+                              <td className="py-2.5 px-3 max-w-[200px]">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-slate-900 truncate">
+                                    {env.expand?.campanha?.nome || 'Campanha'}
+                                  </span>
+                                  {env.expand?.campanha?.anexos &&
+                                    env.expand.campanha.anexos.length > 0 && (
+                                      <span
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold flex-shrink-0"
+                                        title={`${env.expand.campanha.anexos.length} anexo(s) nesta campanha`}
+                                      >
+                                        <Paperclip className="h-2.5 w-2.5" />
+                                        <span>{env.expand.campanha.anexos.length}</span>
+                                      </span>
+                                    )}
+                                </div>
+                                <span className="text-[11px] text-slate-500 truncate block">
+                                  {env.expand?.campanha?.assunto || '—'}
+                                </span>
+                              </td>
+
+                              {/* 3. Contato (destinatário) */}
+                              <td className="py-2.5 px-3 text-slate-800 font-semibold whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+                                  <span>
+                                    {env.nome_contato || env.expand?.contato?.nome || '—'}
+                                  </span>
+                                </div>
+                              </td>
+
+                              {/* 4. Revenda */}
+                              <td className="py-2.5 px-3 text-slate-700">
+                                <div className="font-medium text-slate-900">
+                                  {env.nome_revenda || env.expand?.revenda?.nome || '—'}
+                                </div>
+                                {(env.codigo_revenda || env.expand?.revenda?.codigo) && (
+                                  <span className="font-mono text-[10px] text-slate-500">
+                                    Cód: {env.codigo_revenda || env.expand?.revenda?.codigo}
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* 5. Canal */}
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                                    canal.id === 'sem_canal'
+                                      ? 'bg-slate-50 text-slate-500 border-slate-200'
+                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  }`}
+                                >
+                                  {canal.nome}
+                                </span>
+                              </td>
+
+                              {/* 6. E-mail */}
+                              <td className="py-2.5 px-3 font-mono text-blue-700 break-all">
+                                {env.email_utilizado || '—'}
+                              </td>
+
+                              {/* 7. Status */}
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                {getStatusBadge(env.status)}
+                              </td>
+
+                              {/* 8. Tentativas */}
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <span className="font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[11px]">
+                                  {tentativas}
+                                </span>
+                              </td>
+
+                              {/* 9. Diagnóstico */}
+                              <td className="py-2.5 px-3 max-w-[200px]">
+                                {env.erro && env.mensagem_erro ? (
+                                  <span
+                                    className="text-[11px] text-red-600 font-medium truncate block"
+                                    title={env.mensagem_erro}
+                                  >
+                                    {env.mensagem_erro}
+                                  </span>
+                                ) : env.mensagem_erro && env.mensagem_erro.includes('Simulado') ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200"
+                                    title={env.mensagem_erro}
+                                  >
+                                    Simulado — nenhum e-mail enviado de fato
+                                  </span>
+                                ) : env.sucesso ? (
+                                  <span className="text-[11px] text-emerald-600 font-medium">
+                                    Auditado com sucesso
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-slate-400">Aguardando</span>
+                                )}
+                              </td>
+
+                              {/* 10. Ações */}
+                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {canWrite &&
+                                    (env.status === 'Erro' || env.status === 'Enviado') && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setEnvioParaReenviar(env)}
+                                        disabled={
+                                          reenviandoId === env.id ||
+                                          isReenviandoLote ||
+                                          excluindoId === env.id
+                                        }
+                                        title={
+                                          env.status === 'Enviado'
+                                            ? 'Reenviar mensagem (já entregue)'
+                                            : 'Reenviar mensagem para este destinatário'
+                                        }
+                                        className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-40 ${
+                                          env.status === 'Enviado'
+                                            ? 'bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 hover:border-sky-300'
+                                            : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300'
+                                        }`}
+                                      >
+                                        {reenviandoId === env.id ? (
+                                          <Loader2 className="h-3 w-3 animate-spin text-current" />
+                                        ) : (
+                                          <RotateCw className="h-3 w-3 text-current" />
+                                        )}
+                                        <span>Reenviar</span>
+                                      </button>
+                                    )}
+
+                                  {isAdmin && env.status === 'Erro' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setEnvioParaExcluir(env)}
+                                      disabled={excluindoId === env.id || reenviandoId === env.id}
+                                      title="Excluir registro com falha do histórico"
+                                      className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md border border-slate-200 hover:border-red-200 transition-colors disabled:opacity-40"
+                                    >
+                                      {excluindoId === env.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin text-red-600" />
+                                      ) : (
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      )}
+                                    </button>
+                                  )}
+
+                                  <button
+                                    onClick={() => setSelectedEnvio(env)}
+                                    title="Ver detalhes da comunicação"
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-md border border-slate-200 transition-colors"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                    <span>Detalhes</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                    </React.Fragment>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -743,48 +1545,122 @@ export const HistoricoScreen: React.FC = () => {
 
         {/* PAGINAÇÃO */}
         <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-          <div className="flex items-center gap-2">
-            <span>
-              Exibindo {filteredEnvios.length === 0 ? 0 : (currentPage - 1) * perPage + 1} até{' '}
-              {Math.min(currentPage * perPage, filteredEnvios.length)} de {filteredEnvios.length}{' '}
-              envios
-            </span>
-            <span className="text-slate-300">|</span>
-            <label className="flex items-center gap-1">
-              <span>Linhas por página:</span>
-              <select
-                value={perPage}
-                onChange={(e) => {
-                  setPerPage(Number(e.target.value))
-                  setCurrentPage(1)
-                }}
-                className="py-1 px-2 border border-slate-200 rounded bg-white text-slate-700"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-              </select>
-            </label>
+          <div className="flex items-center gap-2 flex-wrap">
+            {groupBy !== 'none' ? (
+              // Paginação por Grupo no modo agrupado
+              <>
+                <span>
+                  {allGroups.length === 0 ? (
+                    'Nenhum grupo encontrado'
+                  ) : groupsPerPage === 'all' ? (
+                    <>
+                      Exibindo todos os <strong>{allGroups.length}</strong> grupos (
+                      <strong>{sortedEnvios.length}</strong> envios no total)
+                    </>
+                  ) : (
+                    <>
+                      Exibindo grupos {(groupPage - 1) * groupsPerPage + 1}–
+                      {Math.min(groupPage * groupsPerPage, allGroups.length)} de {allGroups.length}{' '}
+                      ({totalEnviosVisiveisNoAgrupado} envios visíveis de {sortedEnvios.length} no
+                      total)
+                    </>
+                  )}
+                </span>
+                <span className="text-slate-300">|</span>
+                <label className="flex items-center gap-1">
+                  <span>Grupos por página:</span>
+                  <select
+                    value={groupsPerPage === 'all' ? 'all' : String(groupsPerPage)}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setGroupsPerPage(val === 'all' ? 'all' : Number(val))
+                      setGroupPage(1)
+                    }}
+                    className="py-1 px-2 border border-slate-200 rounded bg-white text-slate-700 font-medium"
+                  >
+                    <option value="all">Todos em 1 página</option>
+                    <option value="10">10 grupos</option>
+                    <option value="20">20 grupos</option>
+                    <option value="50">50 grupos</option>
+                  </select>
+                </label>
+              </>
+            ) : (
+              // Paginação por Envio no modo Lista Plana
+              <>
+                <span>
+                  Exibindo {sortedEnvios.length === 0 ? 0 : (currentPage - 1) * perPage + 1} até{' '}
+                  {Math.min(currentPage * perPage, sortedEnvios.length)} de {sortedEnvios.length}{' '}
+                  envios
+                </span>
+                <span className="text-slate-300">|</span>
+                <label className="flex items-center gap-1">
+                  <span>Linhas por página:</span>
+                  <select
+                    value={perPage}
+                    onChange={(e) => {
+                      setPerPage(Number(e.target.value))
+                      setCurrentPage(1)
+                    }}
+                    className="py-1 px-2 border border-slate-200 rounded bg-white text-slate-700"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                  </select>
+                </label>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
-            >
-              Anterior
-            </button>
-            <span className="px-2 font-medium text-slate-700">
-              Página {currentPage} de {totalPages}
-            </span>
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
-            >
-              Próxima
-            </button>
+            {groupBy !== 'none' ? (
+              groupsPerPage !== 'all' && (
+                <>
+                  <button
+                    onClick={() => setGroupPage((p) => Math.max(1, p - 1))}
+                    disabled={groupPage === 1}
+                    className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+                  <span className="px-2 font-medium text-slate-700">
+                    Página {groupPage} de {Math.ceil(allGroups.length / groupsPerPage) || 1}
+                  </span>
+                  <button
+                    onClick={() =>
+                      setGroupPage((p) =>
+                        Math.min(Math.ceil(allGroups.length / groupsPerPage) || 1, p + 1),
+                      )
+                    }
+                    disabled={groupPage >= Math.ceil(allGroups.length / groupsPerPage)}
+                    className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Próxima
+                  </button>
+                </>
+              )
+            ) : (
+              <>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Anterior
+                </button>
+                <span className="px-2 font-medium text-slate-700">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Próxima
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
