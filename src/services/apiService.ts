@@ -56,6 +56,19 @@ export const auxiliaresService = {
   async getEmailTemplates(): Promise<EmailTemplate[]> {
     return pb.collection('email_templates').getFullList<EmailTemplate>({ sort: 'nome' })
   },
+  async createEmailTemplate(data: {
+    nome: string
+    assunto: string
+    corpo: string
+  }): Promise<EmailTemplate> {
+    return pb.collection('email_templates').create<EmailTemplate>(data)
+  },
+  async updateEmailTemplate(
+    id: string,
+    data: Partial<{ nome: string; assunto: string; corpo: string }>,
+  ): Promise<EmailTemplate> {
+    return pb.collection('email_templates').update<EmailTemplate>(id, data)
+  },
 
   // Métodos auxiliares específicos usados em criação inline
   async createCargo(data: Partial<Cargo>): Promise<Cargo> {
@@ -206,6 +219,27 @@ export const comunicacoesService = {
 
   async createEnvio(data: Partial<Envio>): Promise<Envio> {
     return pb.collection('envios').create<Envio>(data)
+  },
+
+  async findExistingEnvio(
+    campanhaId: string,
+    contatoId?: string,
+    email?: string,
+  ): Promise<Envio | null> {
+    try {
+      const filters: string[] = [`campanha = '${campanhaId}'`]
+      if (contatoId) {
+        filters.push(`contato = '${contatoId}'`)
+      } else if (email) {
+        filters.push(`email_utilizado = '${email}'`)
+      }
+      const existing = await pb.collection('envios').getList<Envio>(1, 1, {
+        filter: filters.join(' && '),
+      })
+      return existing.items[0] || null
+    } catch (_) {
+      return null
+    }
   },
 
   async listEnvios(

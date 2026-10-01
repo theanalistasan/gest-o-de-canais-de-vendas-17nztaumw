@@ -1171,16 +1171,37 @@ export const HistoricoScreen: React.FC = () => {
                       {selectedEnvio.expand?.campanha?.assunto}
                     </span>
                   </div>
-                  <div className="border-t border-slate-200 pt-2 text-slate-700 whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed font-sans bg-white p-3 rounded-lg border max-h-60 overflow-y-auto">
-                    {(selectedEnvio.expand?.campanha?.corpo || '')
-                      .replace(
-                        /{{nome}}/g,
-                        selectedEnvio.expand?.contato?.nome || selectedEnvio.nome_contato || '',
-                      )
-                      .replace(
-                        /{{revenda}}/g,
-                        selectedEnvio.expand?.revenda?.nome || selectedEnvio.nome_revenda || '',
-                      )}
+                  {/* Visualização da mensagem com cabeçalho oficial Roland DG */}
+                  <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                    <div className="p-3 border-b-2 border-[#005696] flex items-center justify-between bg-white">
+                      <img
+                        src={`${(import.meta as unknown as { env: { VITE_POCKETBASE_URL?: string } }).env.VITE_POCKETBASE_URL || ''}/backend/v1/roland-logo.png`}
+                        alt="Roland DG Brasil"
+                        className="h-7 w-auto object-contain"
+                        onError={(e) => {
+                          ;(e.target as HTMLElement).style.display = 'none'
+                        }}
+                      />
+                      <span className="text-[10px] font-semibold text-slate-400">
+                        Comunicação Oficial Roland DG Brasil
+                      </span>
+                    </div>
+
+                    <div className="p-3 text-slate-700 whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed font-sans max-h-60 overflow-y-auto">
+                      {(selectedEnvio.expand?.campanha?.corpo || '')
+                        .replace(
+                          /{{nome}}/g,
+                          selectedEnvio.expand?.contato?.nome || selectedEnvio.nome_contato || '',
+                        )
+                        .replace(
+                          /{{revenda}}/g,
+                          selectedEnvio.expand?.revenda?.nome || selectedEnvio.nome_revenda || '',
+                        )}
+                    </div>
+
+                    <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-center text-[10px] text-slate-400">
+                      Roland DG Brasil • Mensagem registrada e auditada.
+                    </div>
                   </div>
 
                   {/* Detalhes dos Anexos no modal */}

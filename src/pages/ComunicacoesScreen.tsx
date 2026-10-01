@@ -20,6 +20,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import { useToast } from '@/hooks/use-toast'
 import {
   contatosService,
   revendasService,
@@ -27,6 +28,11 @@ import {
   comunicacoesService,
   adminService,
 } from '@/services/apiService'
+import {
+  executeWithRetry,
+  DEFAULT_EMAIL_FECHAMENTO,
+  ROLAND_LOGO_URL,
+} from '@/lib/emailTemplateHelper'
 import type {
   Contato,
   Revenda,
@@ -43,6 +49,7 @@ import type {
 
 export const ComunicacoesScreen: React.FC = () => {
   const { user, canWrite } = useAuth()
+  const { toast } = useToast()
   const navigate = useNavigate()
 
   // Passo atual: 1 (Destinatários), 2 (Configuração), 3 (Revisão)
@@ -81,6 +88,9 @@ export const ComunicacoesScreen: React.FC = () => {
   const [nomeCampanha, setNomeCampanha] = useState('')
   const [assunto, setAssunto] = useState('')
   const [corpo, setCorpo] = useState('')
+  const [fechamento, setFechamento] = useState(() => {
+    return localStorage.getItem('roland_email_fechamento') || DEFAULT_EMAIL_FECHAMENTO
+  })
   const [selectedRemetente, setSelectedRemetente] = useState('')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [tipoEnvio, setTipoEnvio] = useState<'Teste' | 'Producao'>('Producao')
@@ -89,6 +99,23 @@ export const ComunicacoesScreen: React.FC = () => {
   const [intervaloSegundos, setIntervaloSegundos] = useState<number>(10)
   const [anexos, setAnexos] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Status e progresso de enfileiramento / retries
+  const [enfileiramentoProgresso, setEnfileiramentoProgresso] = useState<{
+    total: number
+    atual: number
+  } | null>(null)
+  const [retryStatusMessage, setRetryStatusMessage] = useState<string | null>(null)
+
+  // Atualizar localStorage quando o fechamento for modificado
+  const handleFechamentoChange = (novoFechamento: string) => {
+    setFechamento(novoFechamento)
+    try {
+      localStorage.setItem('roland_email_fechamento', novoFechamento)
+    } catch {
+      /* intentionally ignored */
+    }
+  }
 
   // Diagnóstico do Provedor de E-mail
   const [emailConfig, setEmailConfig] = useState<{
@@ -250,60 +277,131 @@ export const ComunicacoesScreen: React.FC = () => {
     }
   }
 
-  // Salvar como Rascunho
-  const handleSaveDraft = async () => {
+  // Salvar como Modelo / Template
+  const handleSaveTemplate = async () => {
     if (!user || !canWrite) {
-      alert('Usuários com perfil Consulta não possuem permissão para salvar rascunhos.')
+      toast({
+        title: 'Acesso negado',
+        description: 'Usuários com perfil Consulta não possuem permissão para salvar modelos.',
+        variant: 'destructive',
+      })
       return
     }
+    const templateNome =
+      nomeCampanha.trim() || assunto.trim() || `Modelo ${new Date().toLocaleDateString('pt-BR')}`
+    const templateAssunto = assunto.trim() || 'Sem assunto'
+    const templateCorpo = corpo.trim()
+
+    if (!templateCorpo) {
+      toast({
+        title: 'Corpo vazio',
+        description: 'Digite o conteúdo da mensagem antes de salvar como Modelo / Template.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setIsSubmitting(true)
     try {
-      const formData = new FormData()
-      formData.append(
-        'nome',
-        nomeCampanha.trim() || `Rascunho ${new Date().toLocaleDateString('pt-BR')}`,
-      )
-      formData.append('assunto', assunto.trim() || 'Sem assunto')
-      formData.append('corpo', corpo.trim())
-      formData.append('remetente', selectedRemetente)
-      formData.append('tipo_envio', tipoEnvio)
-      formData.append('intervalo_segundos', String(intervaloSegundos))
-      formData.append('quantidade_destinatarios', String(destinatariosFinais.length))
-      formData.append('status', 'Rascunho')
-      formData.append('usuario', user.id)
-
-      for (const file of anexos) {
-        formData.append('anexos', file)
+      const templateData = {
+        nome: templateNome,
+        assunto: templateAssunto,
+        corpo: templateCorpo,
       }
 
-      await comunicacoesService.createCampanha(formData)
-      alert('Campanha salva como Rascunho com sucesso!')
-      navigate('/historico')
-    } catch (err) {
-      console.error(err)
-      alert('Erro ao salvar rascunho.')
+      let savedTmpl: EmailTemplate
+      if (selectedTemplateId) {
+        savedTmpl = await executeWithRetry(
+          () => auxiliaresService.updateEmailTemplate(selectedTemplateId, templateData),
+          {
+            onRetry: (_attempt, _err, delay) => {
+              setRetryStatusMessage(
+                `O servidor está processando muitas requisições simultâneas. Aguardando liberação (${Math.round(delay)}ms)…`,
+              )
+            },
+          },
+        )
+      } else {
+        // Tentar buscar se já existe template com mesmo nome
+        const existing = templates.find((t) => t.nome.toLowerCase() === templateNome.toLowerCase())
+        if (existing) {
+          savedTmpl = await executeWithRetry(
+            () => auxiliaresService.updateEmailTemplate(existing.id, templateData),
+            {
+              onRetry: (_attempt, _err, delay) => {
+                setRetryStatusMessage(
+                  `O servidor está processando muitas requisições simultâneas. Aguardando liberação (${Math.round(delay)}ms)…`,
+                )
+              },
+            },
+          )
+        } else {
+          savedTmpl = await executeWithRetry(
+            () => auxiliaresService.createEmailTemplate(templateData),
+            {
+              onRetry: (_attempt, _err, delay) => {
+                setRetryStatusMessage(
+                  `O servidor está processando muitas requisições simultâneas. Aguardando liberação (${Math.round(delay)}ms)…`,
+                )
+              },
+            },
+          )
+        }
+      }
+
+      // Atualizar a lista de templates disponível no select do Passo 2
+      const updatedList = await auxiliaresService.getEmailTemplates()
+      setTemplates(updatedList)
+      setSelectedTemplateId(savedTmpl.id)
+
+      toast({
+        title: 'Modelo salvo com sucesso!',
+        description: `O modelo "${savedTmpl.nome}" foi salvo e já está disponível para futuras comunicações.`,
+        className: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+      })
+    } catch (err: unknown) {
+      console.error('Erro ao salvar modelo:', err)
+      toast({
+        title: 'Erro ao salvar modelo',
+        description: 'O servidor não pôde concluir a gravação. Tente novamente em instantes.',
+        variant: 'destructive',
+      })
     } finally {
       setIsSubmitting(false)
+      setRetryStatusMessage(null)
     }
   }
 
   // Confirmar e Iniciar Envio
   const handleConfirmAndSend = async () => {
     if (!user || !canWrite) {
-      alert('Usuários com perfil Consulta não possuem permissão para disparar comunicações.')
+      toast({
+        title: 'Acesso negado',
+        description:
+          'Usuários com perfil Consulta não possuem permissão para disparar comunicações.',
+        variant: 'destructive',
+      })
       return
     }
     if (destinatariosFinais.length === 0) {
-      alert('Nenhum destinatário válido selecionado.')
+      toast({
+        title: 'Nenhum destinatário',
+        description: 'Selecione ao menos um destinatário válido antes de disparar.',
+        variant: 'destructive',
+      })
       return
     }
 
     setIsSubmitting(true)
+    setEnfileiramentoProgresso({ total: destinatariosFinais.length, atual: 0 })
+    setRetryStatusMessage(null)
+
     try {
-      // 1. Criar a Campanha com status "Enviando"
+      // 1. Criar a Campanha com status "Enviando" usando executeWithRetry
       const formData = new FormData()
       formData.append('nome', nomeCampanha.trim() || `Disparo ${assunto.substring(0, 30)}`)
       formData.append('assunto', assunto.trim())
+      // Salva o corpo com o fechamento/assinatura incorporado
       formData.append('corpo', corpo.trim())
       formData.append('remetente', selectedRemetente)
       formData.append('tipo_envio', tipoEnvio)
@@ -316,33 +414,104 @@ export const ComunicacoesScreen: React.FC = () => {
         formData.append('anexos', file)
       }
 
-      const camp = await comunicacoesService.createCampanha(formData)
+      const camp = await executeWithRetry(() => comunicacoesService.createCampanha(formData), {
+        onRetry: (_attempt, _err, delay) => {
+          setRetryStatusMessage(
+            `O servidor está processando muitas requisições simultâneas. Aguardando liberação (${Math.round(delay)}ms)…`,
+          )
+        },
+      })
 
       // 2. Criar os registros individuais na fila `envios` com status "Pendente"
-      // Cada contato recebe uma mensagem individual exclusiva
-      for (const dest of destinatariosFinais) {
-        await comunicacoesService.createEnvio({
-          campanha: camp.id,
-          contato: dest.id,
-          revenda: dest.revenda,
-          email_utilizado: dest.email || dest.email_secundario || '',
-          status: 'Pendente',
-          sucesso: false,
-          erro: false,
-          mensagem_erro: '',
+      // Idempotência: verificar existência por (campanha, contato) ou (campanha, email_utilizado)
+      // Processamento em lotes cadenciados para não sobrecarregar o SQLite nem os hooks de auditoria
+      const BATCH_SIZE = 8
+      const PAUSE_BETWEEN_BATCHES_MS = 250
+      let enfileiradosCount = 0
+
+      for (let i = 0; i < destinatariosFinais.length; i += BATCH_SIZE) {
+        const batch = destinatariosFinais.slice(i, i + BATCH_SIZE)
+
+        await Promise.all(
+          batch.map(async (dest) => {
+            const emailDest = dest.email || dest.email_secundario || ''
+            return executeWithRetry(
+              async () => {
+                // Idempotência: verificar se já existe envio para este contato/email nesta campanha
+                const existing = await comunicacoesService.findExistingEnvio(
+                  camp.id,
+                  dest.id,
+                  emailDest,
+                )
+
+                if (existing) {
+                  // Já existe registro criado nesta campanha: não duplicar
+                  return existing
+                }
+
+                return comunicacoesService.createEnvio({
+                  campanha: camp.id,
+                  contato: dest.id,
+                  revenda: dest.revenda,
+                  nome_contato: dest.nome || '',
+                  nome_revenda: revendasMap.get(dest.revenda)?.nome || '',
+                  codigo_revenda: revendasMap.get(dest.revenda)?.codigo || '',
+                  email_utilizado: emailDest,
+                  status: 'Pendente',
+                  sucesso: false,
+                  erro: false,
+                  mensagem_erro: '',
+                })
+              },
+              {
+                maxAttempts: 4,
+                initialDelayMs: 400,
+                factor: 1.8,
+                onRetry: (_att, _err, delay) => {
+                  setRetryStatusMessage(
+                    `O servidor está processando muitas requisições simultâneas. Aguardando liberação…`,
+                  )
+                },
+              },
+            )
+          }),
+        )
+
+        enfileiradosCount += batch.length
+        setEnfileiramentoProgresso({
+          total: destinatariosFinais.length,
+          atual: enfileiradosCount,
         })
+
+        // Pausa entre lotes para aliviar o pool de escrita SQLite e disparos do hook de auditoria
+        if (i + BATCH_SIZE < destinatariosFinais.length) {
+          await new Promise((resolve) => setTimeout(resolve, PAUSE_BETWEEN_BATCHES_MS))
+        }
       }
 
       // 3. Chamar o endpoint customizado do backend para iniciar processamento imediato
       await comunicacoesService.triggerProcessarEnvios(camp.id)
 
+      toast({
+        title: 'Campanha enfileirada com sucesso!',
+        description: `${destinatariosFinais.length} destinatários foram enfileirados e estão sendo processados.`,
+        className: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+      })
+
       setIsConfirmModalOpen(false)
       navigate('/historico')
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Falha ao enfileirar disparo:', err)
-      alert('Ocorreu um erro ao enfileirar a comunicação.')
+      toast({
+        title: 'Falha no enfileiramento',
+        description:
+          'O servidor está processando muitas requisições simultâneas. O progresso foi retido em estado pendente seguro para evitar duplicidades.',
+        variant: 'destructive',
+      })
     } finally {
       setIsSubmitting(false)
+      setEnfileiramentoProgresso(null)
+      setRetryStatusMessage(null)
     }
   }
 
@@ -868,6 +1037,91 @@ export const ComunicacoesScreen: React.FC = () => {
             />
           </div>
 
+          {/* BLOCO FECHAMENTO / ASSINATURA FIXO-EDITÁVEL ROLAND DG */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="block text-xs font-bold text-slate-800">
+                  Fechamento / Assinatura do E-mail (Fixo e Editável)
+                </label>
+                <p className="text-[11px] text-slate-500">
+                  Este bloco oficial é anexado no final de todos os disparos corporativos. Suas
+                  edições persistem localmente para as próximas mensagens.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleFechamentoChange(DEFAULT_EMAIL_FECHAMENTO)}
+                className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold"
+                title="Restaurar o texto padrão oficial da Roland DG"
+              >
+                Restaurar Padrão
+              </button>
+            </div>
+            <textarea
+              rows={4}
+              value={fechamento}
+              onChange={(e) => handleFechamentoChange(e.target.value)}
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 font-mono bg-white leading-relaxed text-slate-700"
+            />
+          </div>
+
+          {/* PRÉ-VISUALIZAÇÃO EM TEMPO REAL DO E-MAIL COMPLETO (COM CABEÇALHO OFICIAL ROLAND DG) */}
+          <div className="p-4 bg-slate-100/70 border border-slate-200 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 text-blue-600" />
+                <span>Visualização Oficial do E-mail (Como o cliente receberá)</span>
+              </span>
+              <span className="text-[11px] text-slate-500">
+                Cabeçalho Roland DG Brasil + Corpo + Fechamento
+              </span>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm max-w-2xl mx-auto">
+              {/* Header Roland DG */}
+              <div className="p-4 sm:px-6 border-b-2 border-[#005696] flex items-center justify-between bg-white">
+                <img
+                  src={ROLAND_LOGO_URL}
+                  alt="Roland DG Brasil"
+                  className="h-9 w-auto object-contain"
+                  onError={(e) => {
+                    // Fallback visual caso bloqueador impeça carregamento do preview local
+                    ;(e.target as HTMLElement).style.display = 'none'
+                  }}
+                />
+                <span className="text-xs font-bold text-[#005696] tracking-tight block sm:hidden">
+                  Roland DG Brasil
+                </span>
+                <span className="text-[11px] font-medium text-slate-400">Comunicação Oficial</span>
+              </div>
+
+              {/* Corpo no Preview */}
+              <div className="p-5 sm:p-6 text-xs text-slate-700 leading-relaxed space-y-4">
+                <div className="font-semibold text-slate-900 pb-2 border-b border-slate-100">
+                  <span className="text-slate-400 font-normal">Assunto: </span>
+                  {assunto || '(Sem assunto definido)'}
+                </div>
+                <div className="whitespace-pre-wrap font-sans min-h-[60px]">
+                  {corpo
+                    ? corpo
+                        .replace(/{{nome}}/g, 'Carlos Silva')
+                        .replace(/{{revenda}}/g, 'MegaPrint Soluções Gráficas')
+                    : '(Digite o corpo da mensagem acima para visualizar aqui)'}
+                </div>
+                {/* Fechamento oficial no preview */}
+                <div className="pt-4 border-t border-slate-100 text-xs text-slate-600 whitespace-pre-wrap font-sans">
+                  {fechamento}
+                </div>
+              </div>
+
+              {/* Rodapé Oficial no Preview */}
+              <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 text-center text-[11px] text-slate-400">
+                Roland DG Brasil • Todos os direitos reservados.
+              </div>
+            </div>
+          </div>
+
           {/* UPLOAD DE ANEXOS */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
             <div className="flex items-center justify-between">
@@ -1093,14 +1347,22 @@ export const ComunicacoesScreen: React.FC = () => {
 
           <div className="pt-4 flex items-center justify-between">
             {canWrite ? (
-              <button
-                type="button"
-                onClick={handleSaveDraft}
-                disabled={isSubmitting}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
-              >
-                Salvar como Rascunho
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveTemplate}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200 flex items-center gap-1.5 disabled:opacity-50"
+                  title="Salva na coleção de modelos reutilizáveis sem sair da tela"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  <span>Salvar como Modelo / Template</span>
+                </button>
+              </div>
             ) : (
               <div />
             )}
@@ -1176,24 +1438,59 @@ export const ComunicacoesScreen: React.FC = () => {
               </div>
             </div>
 
-            {/* Pré-visualização da mensagem */}
+            {/* Pré-visualização da mensagem completa com cabeçalho Roland DG */}
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                Pré-visualização da Mensagem
+                Pré-visualização da Mensagem Oficial Roland DG
               </h3>
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
                 <div className="text-xs">
                   <span className="font-bold text-slate-700">Assunto: </span>
                   <span className="text-slate-900 font-semibold">{assunto}</span>
                 </div>
-                <div className="border-t border-slate-200 pt-3 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed font-sans bg-white p-3 rounded-lg border">
-                  {corpo
-                    .replace(/{{nome}}/g, destinatariosFinais[0]?.nome || '[Nome do Contato]')
-                    .replace(
-                      /{{revenda}}/g,
-                      destinatariosFinais[0]?.expand?.revenda?.nome || '[Nome da Revenda]',
-                    )}
+
+                {/* Card imitando o e-mail real recebido */}
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                  {/* Cabeçalho Roland DG */}
+                  <div className="p-4 sm:px-6 border-b-2 border-[#005696] flex items-center justify-between bg-white">
+                    <img
+                      src={ROLAND_LOGO_URL}
+                      alt="Roland DG Brasil"
+                      className="h-8 w-auto object-contain"
+                      onError={(e) => {
+                        ;(e.target as HTMLElement).style.display = 'none'
+                      }}
+                    />
+                    <span className="text-[11px] font-semibold text-slate-400">
+                      Comunicação Oficial
+                    </span>
+                  </div>
+
+                  {/* Corpo com placeholders resolvidos para o 1º contato */}
+                  <div className="p-5 text-xs text-slate-700 leading-relaxed font-sans space-y-4">
+                    <div className="whitespace-pre-wrap">
+                      {corpo
+                        .replace(/{{nome}}/g, destinatariosFinais[0]?.nome || '[Nome do Contato]')
+                        .replace(
+                          /{{revenda}}/g,
+                          destinatariosFinais[0]?.expand?.revenda?.nome ||
+                            revendasMap.get(destinatariosFinais[0]?.revenda)?.nome ||
+                            '[Nome da Revenda]',
+                        )}
+                    </div>
+
+                    {/* Bloco de fechamento Roland DG */}
+                    <div className="pt-4 border-t border-slate-100 text-xs text-slate-600 whitespace-pre-wrap font-sans">
+                      {fechamento}
+                    </div>
+                  </div>
+
+                  {/* Rodapé institucional */}
+                  <div className="px-5 py-2.5 bg-slate-50 border-t border-slate-200 text-center text-[10px] text-slate-400">
+                    Roland DG Brasil • Todos os direitos reservados.
+                  </div>
                 </div>
+
                 <p className="text-[11px] text-slate-400 italic">
                   * Exemplo simulado com o primeiro destinatário da lista (
                   {destinatariosFinais[0]?.nome || 'Contato'}).
@@ -1279,11 +1576,13 @@ export const ComunicacoesScreen: React.FC = () => {
                   <>
                     <button
                       type="button"
-                      onClick={handleSaveDraft}
+                      onClick={handleSaveTemplate}
                       disabled={isSubmitting}
-                      className="px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+                      className="px-4 py-2.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200 flex items-center gap-1.5 disabled:opacity-50"
+                      title="Salva na coleção de modelos reutilizáveis sem sair da tela"
                     >
-                      Salvar Rascunho
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span>Salvar como Modelo / Template</span>
                     </button>
                     <button
                       type="button"
@@ -1297,7 +1596,7 @@ export const ComunicacoesScreen: React.FC = () => {
                   </>
                 ) : (
                   <span className="text-xs text-slate-500 italic bg-slate-100 px-3 py-2 rounded-lg border border-slate-200">
-                    Modo somente leitura (perfil Consulta): envio e rascunho desabilitados.
+                    Modo somente leitura (perfil Consulta): envio e modelos desabilitados.
                   </span>
                 )}
               </div>
@@ -1392,12 +1691,47 @@ export const ComunicacoesScreen: React.FC = () => {
               )}
             </div>
 
+            {/* Mensagem amigável de retry/backoff se o servidor estiver sob carga */}
+            {retryStatusMessage && (
+              <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-[11px] flex items-center gap-2 text-left animate-pulse">
+                <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0 text-blue-600" />
+                <span>{retryStatusMessage}</span>
+              </div>
+            )}
+
+            {/* Progresso de Enfileiramento em Lotes */}
+            {enfileiramentoProgresso && (
+              <div className="space-y-1.5 pt-1 text-left">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600">
+                  <span>Enfileirando destinatários de forma segura:</span>
+                  <span className="font-mono text-blue-600">
+                    {enfileiramentoProgresso.atual} / {enfileiramentoProgresso.total}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-blue-600 h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.round(
+                        (enfileiramentoProgresso.atual / enfileiramentoProgresso.total) * 100,
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Idempotência ativa: verificando duplicidades e controlando cadência do servidor.
+                </p>
+              </div>
+            )}
+
             <div className="pt-2 flex items-center justify-center gap-3">
               <button
                 type="button"
-                onClick={() => setIsConfirmModalOpen(false)}
+                onClick={() => {
+                  if (!isSubmitting) setIsConfirmModalOpen(false)
+                }}
                 disabled={isSubmitting}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors border"
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors border disabled:opacity-40"
               >
                 Cancelar
               </button>
@@ -1405,12 +1739,16 @@ export const ComunicacoesScreen: React.FC = () => {
                 type="button"
                 onClick={handleConfirmAndSend}
                 disabled={isSubmitting}
-                className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition-all flex items-center gap-2"
+                className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition-all flex items-center gap-2 disabled:opacity-75"
               >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Enfileirando...</span>
+                    <span>
+                      {enfileiramentoProgresso
+                        ? `Enfileirando (${enfileiramentoProgresso.atual}/${enfileiramentoProgresso.total})...`
+                        : 'Enfileirando...'}
+                    </span>
                   </>
                 ) : (
                   <span>Sim, Confirmar Disparo</span>

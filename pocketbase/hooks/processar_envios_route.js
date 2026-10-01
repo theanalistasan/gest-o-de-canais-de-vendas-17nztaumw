@@ -140,6 +140,65 @@ routerAdd(
           corpoFinal = corpoFinal.replace('{{revenda}}', nomeRevenda)
         }
 
+        // Montar HTML padrão com cabeçalho oficial Roland DG e rodapé responsivo
+        const logoUrl =
+          (
+            $os.getenv('PB_INSTANCE_URL') ||
+            $os.getenv('SITE_URL') ||
+            'https://gestao-de-canais-de-vendas-afa89.shrd00.internal.goskip.dev'
+          ).replace(/\/$/, '') + '/backend/v1/roland-logo.png'
+
+        // Detectar se já tem estrutura HTML completa
+        let htmlFinal = ''
+        if (corpoFinal.indexOf('<!DOCTYPE') !== -1 || corpoFinal.indexOf('<html') !== -1) {
+          htmlFinal = corpoFinal
+        } else {
+          const corpoFormatado = corpoFinal.replace(/\n/g, '<br/>')
+          const defaultFechamento =
+            'Departamento Comercial<br/><br/>Roland DG Brasil Imp e Exp Ltda<br/>Rua San Jose, nº 780 - Pq Industrial San Jose<br/>CEP 06715-862 - (11) 3500-2600 Opção 1'
+
+          htmlFinal =
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">' +
+            '<html xmlns="http://www.w3.org/1999/xhtml" lang="pt-BR">' +
+            '<head>' +
+            '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />' +
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0" />' +
+            '<title>Roland DG Brasil</title>' +
+            '</head>' +
+            '<body style="margin:0;padding:0;background-color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">' +
+            '<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8fafc;padding:24px 12px;">' +
+            '<tr><td align="center">' +
+            '<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:620px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">' +
+            '<!-- Header com Logo Roland DG -->' +
+            '<tr><td style="padding:28px 32px 20px 32px;border-bottom:2px solid #005696;">' +
+            '<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"><tr>' +
+            '<td align="left" valign="middle">' +
+            '<img src="' +
+            logoUrl +
+            '" alt="Roland DG Brasil" width="220" style="display:block;width:220px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;font-family:Arial,sans-serif;font-size:18px;font-weight:bold;color:#005696;" />' +
+            '</td>' +
+            '<td align="right" valign="middle" style="font-size:11px;color:#64748b;font-family:Arial,sans-serif;">Comunicação Oficial</td>' +
+            '</tr></table>' +
+            '</td></tr>' +
+            '<!-- Corpo -->' +
+            '<tr><td style="padding:32px;font-size:14px;line-height:1.65;color:#334155;">' +
+            corpoFormatado +
+            '</td></tr>' +
+            '<!-- Fechamento fixo Roland DG -->' +
+            '<tr><td style="padding:0 32px 28px 32px;">' +
+            '<div style="border-top:1px solid #e2e8f0;padding-top:20px;font-size:13px;line-height:1.6;color:#475569;">' +
+            defaultFechamento +
+            '</div>' +
+            '</td></tr>' +
+            '<!-- Rodape -->' +
+            '<tr><td style="padding:16px 32px;background-color:#f1f5f9;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#64748b;line-height:1.5;">' +
+            'Roland DG Brasil &bull; Todos os direitos reservados.<br />Mensagem automática enviada através do canal autorizado.' +
+            '</td></tr>' +
+            '</table>' +
+            '</td></tr></table>' +
+            '</body></html>'
+        }
+
         if (hasSmtpConfig) {
           // ENVIO REAL VIA SMTP POCKETBASE
           try {
@@ -173,7 +232,7 @@ routerAdd(
               },
               to: [{ address: email }],
               subject: campAssunto,
-              html: corpoFinal.replace(/\n/g, '<br/>'),
+              html: htmlFinal,
               headers: msgHeaders,
               attachments: {},
             })
